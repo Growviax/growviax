@@ -2,10 +2,39 @@ import { NextResponse } from 'next/server';
 import { query, queryOne } from '@/lib/db';
 import { processReferralBonus, processCommission } from '@/lib/commission';
 
+const MAX_RESULT_STREAK = 4;
+
+type SettingRow = {
+    setting_value: string;
+};
+
+type CountRow = {
+    count: number;
+};
+
+type BidRow = {
+    id: number;
+    user_id: number;
+    coin_id: string;
+    direction: 'up' | 'down';
+    amount: string | number;
+    status: 'pending' | 'won' | 'lost';
+};
+
+type ResolvedBidStatusRow = {
+    status: 'won' | 'lost';
+};
+
+type RoundRow = {
+    id: number;
+    total_up_amount: string | number;
+    total_down_amount: string | number;
+};
+
 // Helper: get a platform setting
 async function getSetting(key: string): Promise<string> {
     try {
-        const row = await queryOne<any>('SELECT setting_value FROM platform_settings WHERE setting_key = ?', [key]);
+        const row = await queryOne<SettingRow>('SELECT setting_value FROM platform_settings WHERE setting_key = ?', [key]);
         return row?.setting_value || '';
     } catch { return ''; }
 }
@@ -22,7 +51,7 @@ async function setSetting(key: string, value: string): Promise<void> {
 // Check if a user qualifies for new-user bonus (won fewer than 3 bids total)
 async function getNewUserWinCount(userId: number): Promise<number> {
     try {
-        const result = await queryOne<any>(
+        const result = await queryOne<CountRow>(
             'SELECT COUNT(*) as count FROM bids WHERE user_id = ? AND status = "won"',
             [userId]
         );
@@ -30,13 +59,59 @@ async function getNewUserWinCount(userId: number): Promise<number> {
     } catch { return 999; }
 }
 
+async function getUserResultStreak(userId: number): Promise<{ status: 'won' | 'lost' | null; count: number }> {
+    try {
+        const recentBids = await query<ResolvedBidStatusRow[]>(
+            'SELECT status FROM bids WHERE user_id = ? AND status IN ("won", "lost") ORDER BY id DESC LIMIT ?',
+            [userId, MAX_RESULT_STREAK]
+        );
+
+        if (!recentBids || recentBids.length === 0) {
+            return { status: null, count: 0 };
+        }
+
+        const firstStatus = recentBids[0].status;
+        let count = 0;
+
+        for (const bid of recentBids) {
+            if (bid.status !== firstStatus) {
+                break;
+            }
+            count++;
+        }
+
+        return { status: firstStatus, count };
+    } catch {
+        return { status: null, count: 0 };
+    }
+}
+
+async function shouldBidWin(userId: number, baseOutcome: 'won' | 'lost'): Promise<boolean> {
+    const streak = await getUserResultStreak(userId);
+
+    if (streak.count >= MAX_RESULT_STREAK) {
+        return streak.status === 'lost';
+    }
+
+    if (baseOutcome === 'won') {
+        return true;
+    }
+
+    if (baseOutcome === 'lost') {
+        return Math.random() >= 0.5;
+    }
+
+    return Math.random() >= 0.5;
+}
+
 // Resolve expired rounds - called periodically or via cron
 // WIN LOGIC: payout = originalAmount + netAmount (e.g. bet 100, fee 3, net 97, win = 100+97 = 197)
-// Single bet (one side only): all users win. New user (< 3 wins, < 500) wins. After 3 wins = LOSE.
+// Single bet (one side only): new users under 500 get an onboarding boost for 3 wins,
+// then outcomes become random, while result streaks are capped at 4 in a row.
 // Multi-bet: 1) Admin manual  2) Consecutive  3) Equal=random  4) Minority wins
 export async function POST() {
     try {
-        const expiredRounds = await query<any[]>(
+        const expiredRounds = await query<RoundRow[]>(
             'SELECT * FROM bid_rounds WHERE status = "open" AND end_time <= NOW()'
         );
 
@@ -55,8 +130,8 @@ export async function POST() {
         for (const round of expiredRounds) {
             await query('UPDATE bid_rounds SET status = "closed" WHERE id = ?', [round.id]);
 
-            const totalUp = parseFloat(round.total_up_amount) || 0;
-            const totalDown = parseFloat(round.total_down_amount) || 0;
+            const totalUp = Number(round.total_up_amount) || 0;
+            const totalDown = Number(round.total_down_amount) || 0;
 
             // Skip if no bids
             if (totalUp === 0 && totalDown === 0) {
@@ -66,21 +141,23 @@ export async function POST() {
 
             // If only one side has bids → single bet logic
             // New user (< 3 wins, amount < 500) = WIN
-            // New user (>= 3 wins) = LOSE (to prevent abuse)
-            // Non-new users = always WIN on single bets
+            // New user (>= 3 wins) = random outcome with a max 4-result streak cap
+            // Non-new users = WIN unless the streak cap forces a loss
             if (totalUp === 0 || totalDown === 0) {
-                const bids = await query<any[]>('SELECT * FROM bids WHERE round_id = ? AND status = "pending"', [round.id]);
+                const bids = await query<BidRow[]>('SELECT * FROM bids WHERE round_id = ? AND status = "pending"', [round.id]);
                 const winningSideForSingle = totalUp > 0 ? 'up' : 'down';
                 for (const bid of bids) {
-                    const netAmount = parseFloat(bid.amount);
+                    const netAmount = Number(bid.amount);
                     const originalAmount = netAmount / (1 - 0.03);
 
                     const winCount = await getNewUserWinCount(bid.user_id);
                     const isNewUser = originalAmount < 500;
-                    const newUserExhausted = isNewUser && winCount >= 3;
+                    const baseOutcome: 'won' | 'lost' = isNewUser
+                        ? (winCount < 3 ? 'won' : 'lost')
+                        : 'won';
+                    const bidWon = await shouldBidWin(bid.user_id, baseOutcome);
 
-                    if (newUserExhausted) {
-                        // New user already won 3 times on single bets → LOSE
+                    if (!bidWon) {
                         await query('UPDATE bids SET status = "lost" WHERE id = ?', [bid.id]);
                     } else {
                         // WIN: payout = originalAmount + netAmount
@@ -105,7 +182,7 @@ export async function POST() {
             }
 
             // Get all bids for this round
-            const allBids = await query<any[]>('SELECT * FROM bids WHERE round_id = ? AND status = "pending"', [round.id]);
+            const allBids = await query<BidRow[]>('SELECT * FROM bids WHERE round_id = ? AND status = "pending"', [round.id]);
 
             // ═══════ STEP 1: Multi-bet → go by normal logic (no new user rigging) ═══════
 
@@ -133,15 +210,13 @@ export async function POST() {
                 winningSide = totalUp > totalDown ? 'down' : 'up';
             }
 
-            const losingSide = winningSide === 'up' ? 'down' : 'up';
-
             // ═══════ STEP 3: Process bids (normal logic, no rigging for multi-bet) ═══════
             for (const bid of allBids) {
                 const bidWon = bid.direction === winningSide;
 
                 if (bidWon) {
                     // WIN PAYOUT = originalAmount + netAmount
-                    const netAmount = parseFloat(bid.amount);
+                    const netAmount = Number(bid.amount);
                     const originalAmount = netAmount / (1 - 0.03);
                     const payout = Math.round((originalAmount + netAmount) * 100000000) / 100000000;
 
@@ -157,8 +232,8 @@ export async function POST() {
                 }
 
                 // Process referral bonus + commission for ALL bids (win or lose)
-                await processReferralBonus(bid.user_id, parseFloat(bid.amount));
-                await processCommission(bid.user_id, parseFloat(bid.amount));
+                await processReferralBonus(bid.user_id, Number(bid.amount));
+                await processCommission(bid.user_id, Number(bid.amount));
             }
 
             await query('UPDATE bid_rounds SET status = "resolved", winning_side = ? WHERE id = ?', [winningSide, round.id]);
@@ -166,7 +241,7 @@ export async function POST() {
         }
 
         return NextResponse.json({ message: 'Rounds resolved', resolved: resolvedCount });
-    } catch (error: any) {
+    } catch (error: unknown) {
         console.error('Resolve bids error:', error);
         return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
     }

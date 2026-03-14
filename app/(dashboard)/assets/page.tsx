@@ -25,14 +25,44 @@ const WALLETS = [
 const MIN_AMOUNT = 1000; // ₹1,000 minimum
 const ITEMS_PER_PAGE = 10;
 
+type WalletInfo = {
+    wallet_balance: number | string;
+    total_deposited?: number;
+    total_traded?: number;
+};
+
+type WalletTransaction = {
+    id: number;
+    type: string;
+    status: string;
+    amount: number | string;
+    wallet_address?: string | null;
+    tx_hash?: string | null;
+    notes?: string | null;
+    created_at: string;
+};
+
+type DepositRequest = {
+    id: number;
+    wallet_address: string;
+    qr?: string;
+    status: 'pending' | 'completed' | 'expired';
+    matched_tx_hash?: string | null;
+    created_at?: string;
+    expires_at?: string | null;
+};
+
+const getApiErrorMessage = (error: unknown, fallback: string) => (
+    axios.isAxiosError(error) ? error.response?.data?.error || fallback : fallback
+);
+
 function AssetsContent() {
     const searchParams = useSearchParams();
     const initialTab = searchParams.get('tab') || 'deposit';
 
     const [tab, setTab] = useState(initialTab);
-    const [user, setUser] = useState<any>(null);
-    const [transactions, setTransactions] = useState<any[]>([]);
-    const [txTotal, setTxTotal] = useState(0);
+    const [user, setUser] = useState<WalletInfo | null>(null);
+    const [transactions, setTransactions] = useState<WalletTransaction[]>([]);
     const [loading, setLoading] = useState(true);
 
     /* Withdraw state */
@@ -48,6 +78,8 @@ function AssetsContent() {
     const [depositGenerated, setDepositGenerated] = useState(false);
     const [selectedWallet, setSelectedWallet] = useState(WALLETS[0]);
     const [depositGenerating, setDepositGenerating] = useState(false);
+    const [depositRequest, setDepositRequest] = useState<DepositRequest | null>(null);
+    const completedDepositRef = useRef<string | null>(null);
 
     /* History state */
     const [historyTab, setHistoryTab] = useState<'deposit' | 'withdrawal'>('deposit');
@@ -64,11 +96,51 @@ function AssetsContent() {
             ]);
             setUser(userRes.data.user);
             setTransactions(txRes.data.transactions || []);
-            setTxTotal(txRes.data.transactions?.length || 0);
         } catch { } finally { setLoading(false); }
     }, []);
 
     useEffect(() => { fetchData(); }, [fetchData]);
+
+    const syncDepositStatus = useCallback(async () => {
+        try {
+            const res = await axios.get('/api/wallet/deposit/status');
+            const request = res.data.depositRequest;
+            const latestDeposit = res.data.latestDeposit;
+
+            setDepositRequest(request || null);
+
+            if (request?.wallet_address) {
+                const matched = WALLETS.find((w) => w.address.toLowerCase() === request.wallet_address.toLowerCase());
+                setSelectedWallet(matched || { address: request.wallet_address, qr: request.qr || '/img/qr1.jpeg' });
+                setDepositGenerated(request.status === 'pending' || request.status === 'completed');
+            } else {
+                setDepositGenerated(false);
+            }
+
+            const matchedHash = request?.matched_tx_hash || latestDeposit?.tx_hash || null;
+            if (request?.status === 'completed' && matchedHash && completedDepositRef.current !== matchedHash) {
+                completedDepositRef.current = matchedHash;
+                toast.success('Deposit verified and wallet credited automatically');
+                fetchData();
+            }
+        } catch {}
+    }, [fetchData]);
+
+    useEffect(() => {
+        syncDepositStatus();
+    }, [syncDepositStatus]);
+
+    useEffect(() => {
+        if (tab !== 'deposit' || depositRequest?.status !== 'pending') {
+            return;
+        }
+
+        const interval = window.setInterval(() => {
+            syncDepositStatus();
+        }, 20000);
+
+        return () => window.clearInterval(interval);
+    }, [tab, depositRequest?.status, syncDepositStatus]);
 
     /* ── Copy deposit address ──────────────────────── */
     const copyAddress = () => {
@@ -76,7 +148,31 @@ function AssetsContent() {
         toast.success('Address copied successfully');
     };
 
-    /* ── Handle QR file selection ──────────────────── */
+    /* ── Generate Deposit Info (server-side) ───────── */
+    const handleGenerateDeposit = async () => {
+        setDepositGenerating(true);
+        try {
+            const res = await axios.post('/api/wallet/deposit');
+            const { wallet_address, qr, request_id } = res.data;
+            // Find matching local wallet or build one
+            const matched = WALLETS.find((w) => w.address.toLowerCase() === wallet_address.toLowerCase());
+            setSelectedWallet(matched || { address: wallet_address, qr: qr || '/img/qr1.jpeg' });
+            setDepositGenerated(true);
+            setDepositRequest({
+                id: request_id,
+                wallet_address,
+                qr: qr || '/img/qr1.jpeg',
+                status: 'pending',
+            });
+            syncDepositStatus();
+        } catch (error: unknown) {
+            toast.error(getApiErrorMessage(error, 'Failed to generate deposit info'));
+        } finally {
+            setDepositGenerating(false);
+        }
+    };
+
+
     const handleQrChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (file) {
@@ -101,7 +197,7 @@ function AssetsContent() {
         const amt = parseFloat(withdrawAmount);
         if (!amt || amt <= 0) return toast.error('Enter a valid amount');
         if (amt < MIN_AMOUNT) return toast.error(`Minimum withdrawal is ₹${MIN_AMOUNT.toLocaleString()}`);
-        if (amt > parseFloat(user?.wallet_balance || '0')) return toast.error('Insufficient balance');
+        if (amt > Number(user?.wallet_balance || 0)) return toast.error('Insufficient balance');
         if (!withdrawAddress.trim()) return toast.error('Wallet address is required');
         if (!/^0x[a-fA-F0-9]{40}$/.test(withdrawAddress.trim())) return toast.error('Invalid wallet address format (must be 0x...)');
         if (!withdrawQrFile) return toast.error('Please upload your wallet QR code');
@@ -130,8 +226,8 @@ function AssetsContent() {
 
             // Reset success after 5 seconds
             setTimeout(() => setWithdrawSuccess(false), 5000);
-        } catch (error: any) {
-            toast.error(error.response?.data?.error || 'Withdrawal failed');
+        } catch (error: unknown) {
+            toast.error(getApiErrorMessage(error, 'Withdrawal failed'));
         } finally { setWithdrawing(false); }
     };
 
@@ -195,7 +291,7 @@ function AssetsContent() {
                 <div className="absolute -top-16 -right-16 w-32 h-32 rounded-full bg-neon-cyan/8 blur-3xl" />
                 <div className="relative p-6">
                     <p className="text-text-secondary text-sm font-medium mb-2">Available Balance</p>
-                    <p className="stat-value neon-text mb-1">₹{parseFloat(user?.wallet_balance || 0).toFixed(2)}</p>
+                    <p className="stat-value neon-text mb-1">₹{Number(user?.wallet_balance || 0).toFixed(2)}</p>
                     <span className="badge-info mt-1">INR</span>
                 </div>
             </motion.div>
@@ -269,15 +365,8 @@ function AssetsContent() {
                                                 <p className="text-[11px] text-text-muted">Click below to generate your unique deposit QR code and wallet address</p>
                                             </div>
                                             <button
-                                                onClick={() => {
-                                                    setDepositGenerating(true);
-                                                    const randomWallet = WALLETS[Math.floor(Math.random() * WALLETS.length)];
-                                                    setSelectedWallet(randomWallet);
-                                                    setTimeout(() => {
-                                                        setDepositGenerating(false);
-                                                        setDepositGenerated(true);
-                                                    }, 2500);
-                                                }}
+                                                onClick={handleGenerateDeposit}
+                                                disabled={depositGenerating}
                                                 className="btn-glow px-10 py-3.5 text-sm font-bold flex items-center gap-2"
                                             >
                                                 <BoltIcon className="w-4 h-4" />
@@ -354,6 +443,7 @@ function AssetsContent() {
                                             <li className="flex items-start gap-2"><span className="text-warning">•</span> If you have any issues, please contact our <span className="text-warning font-semibold">support team</span>.</li>
                                         </ul>
                                     </div>
+
                                 </motion.div>
                             )}
                         </AnimatePresence>
@@ -417,14 +507,14 @@ function AssetsContent() {
                                         />
                                         <div className="flex items-center justify-between mt-2">
                                             <p className="text-xs text-text-muted flex items-center gap-1">
-                                                Available: <span className="text-neon-green font-medium">₹{parseFloat(user?.wallet_balance || 0).toFixed(2)}</span>
+                                                Available: <span className="text-neon-green font-medium">₹{Number(user?.wallet_balance || 0).toFixed(2)}</span>
                                             </p>
                                             <p className="text-xs text-text-muted">Fee: <span className="text-neon-green font-medium">₹0.00</span></p>
                                         </div>
                                         {/* Quick amount buttons */}
                                         <div className="flex gap-1.5 mt-2.5">
                                             {[25, 50, 75, 100].map((pct) => {
-                                                const bal = parseFloat(user?.wallet_balance || '0');
+                                                const bal = Number(user?.wallet_balance || 0);
                                                 const val = (bal * pct / 100).toFixed(2);
                                                 return (
                                                     <button
@@ -616,7 +706,7 @@ function AssetsContent() {
                                             'text-sm font-bold',
                                             historyTab === 'deposit' ? 'text-neon-green' : 'text-neon-red'
                                         )}>
-                                            {historyTab === 'deposit' ? '+' : '-'}₹{parseFloat(tx.amount).toFixed(2)}
+                                            {historyTab === 'deposit' ? '+' : '-'}₹{Number(tx.amount).toFixed(2)}
                                         </p>
                                         {statusBadge(tx.status)}
                                     </div>
