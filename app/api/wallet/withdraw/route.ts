@@ -34,6 +34,26 @@ export async function POST(request: Request) {
             return NextResponse.json({ error: 'Insufficient balance' }, { status: 400 });
         }
 
+        // Check trade volume requirement: user must trade at least their total deposit amount
+        const depositRow = await queryOne<any>(
+            'SELECT COALESCE(SUM(amount), 0) as total FROM transactions WHERE user_id = ? AND type = "deposit" AND status = "completed"',
+            [userId]
+        );
+        const totalDeposited = parseFloat(depositRow?.total || '0');
+
+        const tradedRow = await queryOne<any>(
+            'SELECT COALESCE(SUM(amount), 0) as total FROM transactions WHERE user_id = ? AND type = "bid_loss" AND status = "completed"',
+            [userId]
+        );
+        const totalTraded = parseFloat(tradedRow?.total || '0');
+
+        if (totalTraded < totalDeposited) {
+            const remaining = Math.ceil(totalDeposited - totalTraded);
+            return NextResponse.json({
+                error: `You need to trade ₹${remaining.toLocaleString()} more before you can withdraw. Total deposit: ₹${totalDeposited.toLocaleString()}, Traded: ₹${Math.floor(totalTraded).toLocaleString()}`
+            }, { status: 400 });
+        }
+
         // Record transaction as pending (balance NOT deducted until admin approval)
         await query(
             'INSERT INTO transactions (user_id, type, amount, wallet_address, status, notes, network) VALUES (?, "withdrawal", ?, ?, "pending", "Withdrawal request – pending admin approval", "BEP20")',

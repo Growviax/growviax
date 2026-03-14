@@ -21,7 +21,7 @@ export async function GET(request: Request) {
 
         if (search) {
             users = await query<any[]>(
-                `SELECT id, name, email, phone, wallet_address, wallet_balance, referral_code, referred_by, role, is_verified, created_at FROM users WHERE name LIKE ? OR email LIKE ? OR phone LIKE ? ORDER BY created_at DESC LIMIT ${Number(limit)} OFFSET ${Number(offset)}`,
+                `SELECT id, name, email, phone, wallet_address, wallet_balance, referral_code, referred_by, role, is_verified, is_blocked, created_at FROM users WHERE name LIKE ? OR email LIKE ? OR phone LIKE ? ORDER BY created_at DESC LIMIT ${Number(limit)} OFFSET ${Number(offset)}`,
                 [`%${search}%`, `%${search}%`, `%${search}%`]
             );
             const countResult = await query<any[]>(
@@ -31,7 +31,7 @@ export async function GET(request: Request) {
             total = countResult?.[0]?.total || 0;
         } else {
             users = await query<any[]>(
-                `SELECT id, name, email, phone, wallet_address, wallet_balance, referral_code, referred_by, role, is_verified, created_at FROM users ORDER BY created_at DESC LIMIT ${Number(limit)} OFFSET ${Number(offset)}`
+                `SELECT id, name, email, phone, wallet_address, wallet_balance, referral_code, referred_by, role, is_verified, is_blocked, created_at FROM users ORDER BY created_at DESC LIMIT ${Number(limit)} OFFSET ${Number(offset)}`
             );
             const countResult = await query<any[]>('SELECT COUNT(*) as total FROM users');
             total = countResult?.[0]?.total || 0;

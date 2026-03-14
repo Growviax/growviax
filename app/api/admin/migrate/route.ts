@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
-import { query } from '@/lib/db';
+import { query, queryOne } from '@/lib/db';
+import { hashPassword, generateWalletAddress, generateReferralCode } from '@/lib/auth';
 
 // Run this to add platform_settings table, is_blocked column, and update ENUM
 export async function GET() {
@@ -12,6 +13,13 @@ export async function GET() {
         // Add is_blocked to users
         try {
             await query(`ALTER TABLE users ADD COLUMN is_blocked TINYINT(1) DEFAULT 0`);
+        } catch (e: any) {
+            if (!e.message?.includes('Duplicate column')) throw e;
+        }
+
+        // Add network column to transactions (for withdrawal)
+        try {
+            await query(`ALTER TABLE transactions ADD COLUMN network VARCHAR(50) DEFAULT 'BEP20'`);
         } catch (e: any) {
             if (!e.message?.includes('Duplicate column')) throw e;
         }
@@ -63,7 +71,23 @@ export async function GET() {
             )
         `);
 
-        return NextResponse.json({ message: 'Migration successful: platform_settings created, is_blocked added, commission_history ensured' });
+        // Ensure admin account exists (growviax60@gmail.com)
+        const adminEmail = 'growviax60@gmail.com';
+        const existingAdmin = await queryOne<any>('SELECT id FROM users WHERE email = ?', [adminEmail]);
+        if (!existingAdmin) {
+            const adminPasswordHash = await hashPassword('12345678');
+            const adminWallet = generateWalletAddress();
+            const adminReferral = generateReferralCode();
+            await query(
+                'INSERT INTO users (name, email, phone, password_hash, wallet_address, referral_code, role, is_verified) VALUES (?, ?, ?, ?, ?, ?, "admin", 1)',
+                ['Admin', adminEmail, '0000000000', adminPasswordHash, adminWallet, adminReferral]
+            );
+        } else {
+            // Ensure existing account has admin role
+            await query('UPDATE users SET role = "admin" WHERE email = ?', [adminEmail]);
+        }
+
+        return NextResponse.json({ message: 'Migration successful: platform_settings created, is_blocked added, commission_history ensured, admin account ensured' });
     } catch (error: any) {
         console.error('Migration error:', error);
         return NextResponse.json({ error: error.message }, { status: 500 });

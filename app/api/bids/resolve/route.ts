@@ -19,21 +19,21 @@ async function setSetting(key: string, value: string): Promise<void> {
     } catch { }
 }
 
-// Check if a user qualifies for new-user rigging (first 3 bets)
-async function isNewUserRig(userId: number): Promise<boolean> {
+// Check if a user qualifies for new-user bonus (won fewer than 3 bids total)
+async function getNewUserWinCount(userId: number): Promise<number> {
     try {
         const result = await queryOne<any>(
-            'SELECT COUNT(*) as count FROM bids WHERE user_id = ?',
+            'SELECT COUNT(*) as count FROM bids WHERE user_id = ? AND status = "won"',
             [userId]
         );
-        // Include current bid in count (it's already inserted), so <= 3 means first 3
-        return (result?.count || 0) <= 3;
-    } catch { return false; }
+        return result?.count || 0;
+    } catch { return 999; }
 }
 
 // Resolve expired rounds - called periodically or via cron
-// WIN LOGIC: If user wins, payout = 2x their net bid amount (amount after 3% fee)
-// PRIORITY: 1) New user rig  2) Admin manual  3) Consecutive  4) Equal=random  5) Minority wins
+// WIN LOGIC: payout = originalAmount + netAmount (e.g. bet 100, fee 3, net 97, win = 100+97 = 197)
+// Single bet (one side only): all users win. New user (< 3 wins, < 500) wins. After 3 wins = LOSE.
+// Multi-bet: 1) Admin manual  2) Consecutive  3) Equal=random  4) Minority wins
 export async function POST() {
     try {
         const expiredRounds = await query<any[]>(
@@ -64,41 +64,50 @@ export async function POST() {
                 continue;
             }
 
-            // If only one side has bids, refund them
+            // If only one side has bids → single bet logic
+            // New user (< 3 wins, amount < 500) = WIN
+            // New user (>= 3 wins) = LOSE (to prevent abuse)
+            // Non-new users = always WIN on single bets
             if (totalUp === 0 || totalDown === 0) {
                 const bids = await query<any[]>('SELECT * FROM bids WHERE round_id = ? AND status = "pending"', [round.id]);
+                const winningSideForSingle = totalUp > 0 ? 'up' : 'down';
                 for (const bid of bids) {
-                    await query('UPDATE users SET wallet_balance = wallet_balance + ? WHERE id = ?', [bid.amount, bid.user_id]);
-                    await query('UPDATE bids SET status = "won", payout = ? WHERE id = ?', [bid.amount, bid.id]);
+                    const netAmount = parseFloat(bid.amount);
+                    const originalAmount = netAmount / (1 - 0.03);
+
+                    const winCount = await getNewUserWinCount(bid.user_id);
+                    const isNewUser = originalAmount < 500;
+                    const newUserExhausted = isNewUser && winCount >= 3;
+
+                    if (newUserExhausted) {
+                        // New user already won 3 times on single bets → LOSE
+                        await query('UPDATE bids SET status = "lost" WHERE id = ?', [bid.id]);
+                    } else {
+                        // WIN: payout = originalAmount + netAmount
+                        const payout = Math.round((originalAmount + netAmount) * 100000000) / 100000000;
+
+                        await query('UPDATE users SET wallet_balance = wallet_balance + ? WHERE id = ?', [payout, bid.user_id]);
+                        await query('UPDATE bids SET status = "won", payout = ? WHERE id = ?', [payout, bid.id]);
+
+                        await query(
+                            'INSERT INTO transactions (user_id, type, amount, status, notes) VALUES (?, "bid_win", ?, "completed", ?)',
+                            [bid.user_id, payout, `Won bid on ${bid.coin_id} (Round #${round.id})`]
+                        );
+                    }
+
+                    // Process referral bonus + commission
+                    await processReferralBonus(bid.user_id, netAmount);
+                    await processCommission(bid.user_id, netAmount);
                 }
-                await query('UPDATE bid_rounds SET status = "resolved" WHERE id = ?', [round.id]);
+                await query('UPDATE bid_rounds SET status = "resolved", winning_side = ? WHERE id = ?', [winningSideForSingle, round.id]);
+                resolvedCount++;
                 continue;
             }
 
             // Get all bids for this round
             const allBids = await query<any[]>('SELECT * FROM bids WHERE round_id = ? AND status = "pending"', [round.id]);
 
-            // ═══════ STEP 1: New user rigging (per-user override) ═══════
-            // Check each bid: if user is new (first 3 bids), apply special logic
-            const riggedBids = new Map<number, 'win' | 'lose'>(); // bidId → forced outcome
-
-            for (const bid of allBids) {
-                const isNew = await isNewUserRig(bid.user_id);
-                if (isNew) {
-                    const bidAmount = parseFloat(bid.amount);
-                    const originalAmount = bidAmount / (1 - 0.03); // reverse fee to get original INR amount
-
-                    // Check if they're the only bidder on their side
-                    const sameSideBids = allBids.filter(b => b.direction === bid.direction);
-                    const isSolo = sameSideBids.length === 1;
-
-                    if (isSolo && originalAmount < 500) {
-                        riggedBids.set(bid.id, 'win');
-                    } else if (originalAmount >= 500) {
-                        riggedBids.set(bid.id, 'lose');
-                    }
-                }
-            }
+            // ═══════ STEP 1: Multi-bet → go by normal logic (no new user rigging) ═══════
 
             // ═══════ STEP 2: Determine round winner ═══════
             let winningSide: 'up' | 'down';
@@ -126,21 +135,12 @@ export async function POST() {
 
             const losingSide = winningSide === 'up' ? 'down' : 'up';
 
-            // ═══════ STEP 3: Process bids with rigging overrides ═══════
+            // ═══════ STEP 3: Process bids (normal logic, no rigging for multi-bet) ═══════
             for (const bid of allBids) {
-                const rigOverride = riggedBids.get(bid.id);
-                let bidWon: boolean;
-
-                if (rigOverride === 'win') {
-                    bidWon = true;
-                } else if (rigOverride === 'lose') {
-                    bidWon = false;
-                } else {
-                    bidWon = bid.direction === winningSide;
-                }
+                const bidWon = bid.direction === winningSide;
 
                 if (bidWon) {
-                    // WIN PAYOUT
+                    // WIN PAYOUT = originalAmount + netAmount
                     const netAmount = parseFloat(bid.amount);
                     const originalAmount = netAmount / (1 - 0.03);
                     const payout = Math.round((originalAmount + netAmount) * 100000000) / 100000000;

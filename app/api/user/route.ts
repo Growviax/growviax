@@ -24,7 +24,26 @@ export async function GET(request: Request) {
             [userId]
         );
 
-        return NextResponse.json({ user });
+        // Get trade volume data for withdrawal requirement
+        const depositRow = await queryOne<any>(
+            'SELECT COALESCE(SUM(amount), 0) as total FROM transactions WHERE user_id = ? AND type = "deposit" AND status = "completed"',
+            [userId]
+        );
+        const tradedRow = await queryOne<any>(
+            'SELECT COALESCE(SUM(amount), 0) as total FROM transactions WHERE user_id = ? AND type = "bid_loss" AND status = "completed"',
+            [userId]
+        );
+
+        const totalDeposited = parseFloat(depositRow?.total || '0');
+        const totalTraded = parseFloat(tradedRow?.total || '0');
+
+        return NextResponse.json({
+            user: {
+                ...user,
+                total_deposited: totalDeposited,
+                total_traded: totalTraded,
+            }
+        });
     } catch (error: any) {
         return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
     }

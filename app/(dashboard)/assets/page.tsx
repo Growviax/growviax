@@ -538,7 +538,7 @@ function AssetsContent() {
                                 <div className="mt-5 p-4 rounded-2xl border border-warning/20 bg-warning/5">
                                     <h3 className="text-sm font-bold text-warning mb-3">Withdrawal Instructions</h3>
                                     <ul className="space-y-2 text-[12px] text-text-secondary">
-                                        <li className="flex items-start gap-2"><span className="text-warning">•</span> Need to trade <span className="text-warning font-semibold">₹0.00</span> INR.</li>
+                                        <li className="flex items-start gap-2"><span className="text-warning">•</span> Need to trade <span className="text-warning font-semibold">₹{Math.max(0, Math.ceil((user?.total_deposited || 0) - (user?.total_traded || 0))).toLocaleString()}</span> more to unlock withdrawal (Deposit: ₹{Math.floor(user?.total_deposited || 0).toLocaleString()}, Traded: ₹{Math.floor(user?.total_traded || 0).toLocaleString()}).</li>
                                         <li className="flex items-start gap-2"><span className="text-warning">•</span> Get withdrawal within <span className="text-warning font-semibold">24 hrs</span>.</li>
                                         <li className="flex items-start gap-2"><span className="text-warning">•</span> The minimum withdrawal amount is <span className="text-warning font-semibold">₹1,000.00</span> INR.</li>
                                         <li className="flex items-start gap-2"><span className="text-warning">•</span> The maximum withdrawal amount is <span className="text-warning font-semibold">₹10,000,000.00</span> INR.</li>
