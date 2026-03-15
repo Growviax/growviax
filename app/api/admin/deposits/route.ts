@@ -37,8 +37,8 @@ export async function GET(request: Request) {
              LEFT JOIN users a ON a.id = dr.admin_id
              ${whereClause}
              ORDER BY dr.created_at DESC
-             LIMIT ? OFFSET ?`,
-            [...params, limit, offset]
+             LIMIT ${Number(limit)} OFFSET ${Number(offset)}`,
+            params
         ) || [];
 
         const countResult = await queryOne<{ total: number }>(

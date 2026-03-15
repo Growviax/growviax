@@ -51,11 +51,10 @@ function AssetsContent() {
     /* Withdraw state */
     const [withdrawAmount, setWithdrawAmount] = useState('');
     const [withdrawAddress, setWithdrawAddress] = useState('');
-    const [withdrawQrFile, setWithdrawQrFile] = useState<File | null>(null);
-    const [withdrawQrPreview, setWithdrawQrPreview] = useState<string | null>(null);
     const [withdrawing, setWithdrawing] = useState(false);
     const [withdrawSuccess, setWithdrawSuccess] = useState(false);
-    const qrInputRef = useRef<HTMLInputElement>(null);
+    const [withdrawMethod, setWithdrawMethod] = useState<'usdt' | 'upi'>('usdt');
+    const [withdrawUpiId, setWithdrawUpiId] = useState('');
 
     /* Deposit state — new manual verification system */
     const [depositMethod, setDepositMethod] = useState<'usdt' | 'upi'>('usdt');
@@ -175,24 +174,6 @@ function AssetsContent() {
     };
 
 
-    const handleQrChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        if (file) {
-            if (!file.type.startsWith('image/')) {
-                toast.error('Please upload a valid image file');
-                return;
-            }
-            if (file.size > 5 * 1024 * 1024) {
-                toast.error('Image must be under 5MB');
-                return;
-            }
-            setWithdrawQrFile(file);
-            const reader = new FileReader();
-            reader.onloadend = () => setWithdrawQrPreview(reader.result as string);
-            reader.readAsDataURL(file);
-        }
-    };
-
     /* ── Handle Withdrawal ─────────────────────────── */
     const handleWithdraw = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -200,30 +181,28 @@ function AssetsContent() {
         if (!amt || amt <= 0) return toast.error('Enter a valid amount');
         if (amt < MIN_AMOUNT) return toast.error(`Minimum withdrawal is ₹${MIN_AMOUNT.toLocaleString()}`);
         if (amt > Number(user?.wallet_balance || 0)) return toast.error('Insufficient balance');
-        if (!withdrawAddress.trim()) return toast.error('Wallet address is required');
-        if (!/^0x[a-fA-F0-9]{40}$/.test(withdrawAddress.trim())) return toast.error('Invalid wallet address format (must be 0x...)');
-        if (!withdrawQrFile) return toast.error('Please upload your wallet QR code');
+
+        if (withdrawMethod === 'usdt') {
+            if (!withdrawAddress.trim()) return toast.error('Wallet address is required');
+            if (!/^0x[a-fA-F0-9]{40}$/.test(withdrawAddress.trim())) return toast.error('Invalid wallet address format (must be 0x...)');
+        } else {
+            if (!withdrawUpiId.trim()) return toast.error('UPI ID is required');
+            if (!withdrawUpiId.includes('@')) return toast.error('Invalid UPI ID format (must contain @)');
+        }
 
         setWithdrawing(true);
         try {
-            // Convert QR to base64
-            const reader = new FileReader();
-            const qrBase64 = await new Promise<string>((resolve) => {
-                reader.onloadend = () => resolve(reader.result as string);
-                reader.readAsDataURL(withdrawQrFile);
-            });
-
             await axios.post('/api/wallet/withdraw', {
                 amount: amt,
-                walletAddress: withdrawAddress.trim(),
-                qrImage: qrBase64,
+                withdrawMethod,
+                walletAddress: withdrawMethod === 'usdt' ? withdrawAddress.trim() : null,
+                upiId: withdrawMethod === 'upi' ? withdrawUpiId.trim() : null,
             });
 
             setWithdrawSuccess(true);
             setWithdrawAmount('');
             setWithdrawAddress('');
-            setWithdrawQrFile(null);
-            setWithdrawQrPreview(null);
+            setWithdrawUpiId('');
             fetchData();
 
             // Reset success after 5 seconds
@@ -564,13 +543,29 @@ function AssetsContent() {
                                 <form onSubmit={handleWithdraw} className="glass-card space-y-5">
                                     <div className="flex items-center gap-2 mb-1">
                                         <ArrowUpTrayIcon className="w-5 h-5 text-neon-cyan" />
-                                        <p className="text-sm font-semibold text-text-secondary">Withdraw USDT</p>
+                                        <p className="text-sm font-semibold text-text-secondary">Withdraw Funds</p>
+                                    </div>
+
+                                    {/* Withdraw Method Toggle */}
+                                    <div className="grid grid-cols-2 gap-2">
+                                        <button type="button" onClick={() => setWithdrawMethod('usdt')}
+                                            className={clsx('py-3 rounded-xl text-sm font-semibold transition-all border-2 flex items-center justify-center gap-2',
+                                                withdrawMethod === 'usdt' ? 'bg-neon-cyan/12 text-neon-cyan border-neon-cyan/30' : 'bg-glass text-text-muted border-transparent hover:border-glass-border'
+                                            )}>
+                                            <WalletIcon className="w-4 h-4" /> USDT (BSC)
+                                        </button>
+                                        <button type="button" onClick={() => setWithdrawMethod('upi')}
+                                            className={clsx('py-3 rounded-xl text-sm font-semibold transition-all border-2 flex items-center justify-center gap-2',
+                                                withdrawMethod === 'upi' ? 'bg-neon-green/12 text-neon-green border-neon-green/30' : 'bg-glass text-text-muted border-transparent hover:border-glass-border'
+                                            )}>
+                                            <BanknotesIcon className="w-4 h-4" /> UPI (INR)
+                                        </button>
                                     </div>
 
                                     {/* Amount */}
                                     <div>
                                         <label className="form-label flex items-center gap-2">
-                                            <BanknotesIcon className="w-4 h-4 text-text-muted" /> Amount (USDT)
+                                            <BanknotesIcon className="w-4 h-4 text-text-muted" /> Amount (₹)
                                         </label>
                                         <input
                                             type="number"
@@ -611,74 +606,39 @@ function AssetsContent() {
                                         </div>
                                     </div>
 
-                                    {/* Wallet Address */}
-                                    <div>
-                                        <label className="form-label flex items-center gap-2">
-                                            <WalletIcon className="w-4 h-4 text-text-muted" /> Wallet Address (BSC) <span className="text-neon-red">*</span>
-                                        </label>
-                                        <input
-                                            type="text"
-                                            value={withdrawAddress}
-                                            onChange={(e) => setWithdrawAddress(e.target.value)}
-                                            placeholder="0x..."
-                                            className="glass-input font-mono text-sm"
-                                            required
-                                        />
-                                    </div>
+                                    {/* USDT: Wallet Address */}
+                                    {withdrawMethod === 'usdt' && (
+                                        <div>
+                                            <label className="form-label flex items-center gap-2">
+                                                <WalletIcon className="w-4 h-4 text-text-muted" /> Wallet Address (BSC) <span className="text-neon-red">*</span>
+                                            </label>
+                                            <input
+                                                type="text"
+                                                value={withdrawAddress}
+                                                onChange={(e) => setWithdrawAddress(e.target.value)}
+                                                placeholder="0x..."
+                                                className="glass-input font-mono text-sm"
+                                            />
+                                            <p className="text-[10px] text-text-muted mt-1">Enter your BEP20 (BSC) wallet address to receive USDT</p>
+                                        </div>
+                                    )}
 
-                                    {/* QR Code Upload */}
-                                    <div>
-                                        <label className="form-label flex items-center gap-2">
-                                            <PhotoIcon className="w-4 h-4 text-text-muted" /> Upload Wallet QR Code <span className="text-neon-red">*</span>
-                                        </label>
-                                        <input
-                                            ref={qrInputRef}
-                                            type="file"
-                                            accept="image/*"
-                                            onChange={handleQrChange}
-                                            className="hidden"
-                                        />
-                                        {withdrawQrPreview ? (
-                                            <div className="relative w-full rounded-2xl border border-glass-border overflow-hidden bg-glass">
-                                                <div className="flex items-center justify-center p-4">
-                                                    <Image
-                                                        src={withdrawQrPreview}
-                                                        alt="Wallet QR"
-                                                        width={160}
-                                                        height={160}
-                                                        className="rounded-xl object-contain"
-                                                    />
-                                                </div>
-                                                <div className="border-t border-glass-border flex">
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => qrInputRef.current?.click()}
-                                                        className="flex-1 py-2.5 text-xs font-semibold text-neon-cyan hover:bg-neon-cyan/5 transition-colors flex items-center justify-center gap-1.5"
-                                                    >
-                                                        <ArrowPathIcon className="w-3.5 h-3.5" /> Change
-                                                    </button>
-                                                    <div className="w-px bg-glass-border" />
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => { setWithdrawQrFile(null); setWithdrawQrPreview(null); }}
-                                                        className="flex-1 py-2.5 text-xs font-semibold text-neon-red hover:bg-neon-red/5 transition-colors flex items-center justify-center gap-1.5"
-                                                    >
-                                                        <XCircleIcon className="w-3.5 h-3.5" /> Remove
-                                                    </button>
-                                                </div>
-                                            </div>
-                                        ) : (
-                                            <button
-                                                type="button"
-                                                onClick={() => qrInputRef.current?.click()}
-                                                className="w-full py-8 rounded-2xl border-2 border-dashed border-glass-border hover:border-neon-cyan/30 hover:bg-neon-cyan/3 transition-all flex flex-col items-center gap-2"
-                                            >
-                                                <PhotoIcon className="w-8 h-8 text-text-muted" />
-                                                <p className="text-sm text-text-muted font-medium">Click to upload QR code</p>
-                                                <p className="text-[11px] text-text-muted">PNG, JPG up to 5MB</p>
-                                            </button>
-                                        )}
-                                    </div>
+                                    {/* UPI: UPI ID */}
+                                    {withdrawMethod === 'upi' && (
+                                        <div>
+                                            <label className="form-label flex items-center gap-2">
+                                                <BanknotesIcon className="w-4 h-4 text-text-muted" /> UPI ID <span className="text-neon-red">*</span>
+                                            </label>
+                                            <input
+                                                type="text"
+                                                value={withdrawUpiId}
+                                                onChange={(e) => setWithdrawUpiId(e.target.value)}
+                                                placeholder="yourname@upi"
+                                                className="glass-input text-sm"
+                                            />
+                                            <p className="text-[10px] text-text-muted mt-1">Enter your UPI ID (e.g., name@paytm, name@ybl)</p>
+                                        </div>
+                                    )}
 
                                     <button
                                         type="submit"
@@ -690,7 +650,7 @@ function AssetsContent() {
                                                 <ArrowPathIcon className="w-4 h-4 animate-spin" /> Processing...
                                             </>
                                         ) : (
-                                            'Confirm Withdrawal'
+                                            `Withdraw via ${withdrawMethod === 'usdt' ? 'USDT' : 'UPI'}`
                                         )}
                                     </button>
 

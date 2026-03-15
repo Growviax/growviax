@@ -5,8 +5,9 @@ import { z } from 'zod';
 
 const withdrawSchema = z.object({
     amount: z.number().positive('Amount must be positive'),
-    walletAddress: z.string().min(10, 'Invalid wallet address'),
-    qrImage: z.string().optional(),
+    withdrawMethod: z.enum(['usdt', 'upi']),
+    walletAddress: z.string().nullable().optional(),
+    upiId: z.string().nullable().optional(),
 });
 
 export async function POST(request: Request) {
@@ -21,7 +22,18 @@ export async function POST(request: Request) {
             return NextResponse.json({ error: parsed.error.issues[0].message }, { status: 400 });
         }
 
-        const { amount, walletAddress, qrImage } = parsed.data;
+        const { amount, withdrawMethod, walletAddress, upiId } = parsed.data;
+
+        // Validate based on method
+        if (withdrawMethod === 'usdt') {
+            if (!walletAddress || !/^0x[a-fA-F0-9]{40}$/.test(walletAddress)) {
+                return NextResponse.json({ error: 'Invalid BSC wallet address' }, { status: 400 });
+            }
+        } else {
+            if (!upiId || !upiId.includes('@')) {
+                return NextResponse.json({ error: 'Invalid UPI ID' }, { status: 400 });
+            }
+        }
 
         // Check minimum amount
         if (amount < 1000) {
@@ -55,12 +67,16 @@ export async function POST(request: Request) {
         }
 
         // Record transaction as pending (balance NOT deducted until admin approval)
+        const address = withdrawMethod === 'usdt' ? walletAddress : upiId;
+        const network = withdrawMethod === 'usdt' ? 'BEP20' : 'UPI';
+        const notes = `${withdrawMethod.toUpperCase()} withdrawal request – pending admin approval`;
+
         await query(
-            'INSERT INTO transactions (user_id, type, amount, wallet_address, status, notes, network) VALUES (?, "withdrawal", ?, ?, "pending", "Withdrawal request – pending admin approval", "BEP20")',
-            [userId, amount, walletAddress]
+            'INSERT INTO transactions (user_id, type, amount, wallet_address, status, notes, network) VALUES (?, "withdrawal", ?, ?, "pending", ?, ?)',
+            [userId, amount, address, notes, network]
         );
 
-        return NextResponse.json({ message: 'Withdrawal request submitted. It will be processed within 3 working days.' });
+        return NextResponse.json({ message: 'Withdrawal request submitted. It will be processed within 24 hours.' });
     } catch (error: any) {
         console.error('Withdraw error:', error);
         return NextResponse.json({ error: 'Internal server error' }, { status: 500 });

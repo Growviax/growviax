@@ -1002,12 +1002,13 @@ export default function AdminPage() {
                     <motion.div
                         initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
                         className="fixed inset-0 z-50 flex items-center justify-center p-4"
-                        style={{ background: 'rgba(0,0,0,0.7)' }}
+                        style={{ background: 'rgba(0,0,0,0.85)' }}
                         onClick={() => setShowWithdrawModal(false)}
                     >
                         <motion.div
                             initial={{ scale: 0.95, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.95, y: 20 }}
-                            className="glass-card w-full max-w-md"
+                            className="w-full max-w-md rounded-2xl border border-glass-border p-5"
+                            style={{ background: '#111130' }}
                             onClick={(e) => e.stopPropagation()}
                         >
                             <h3 className="text-base font-bold mb-2">
