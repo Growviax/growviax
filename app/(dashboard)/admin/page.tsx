@@ -73,6 +73,8 @@ export default function AdminPage() {
     const [referralSettings, setReferralSettings] = useState<any>(null);
     const [referralStats, setReferralStats] = useState<any>(null);
     const [editReferralRate, setEditReferralRate] = useState('');
+    const [editCommissionLevels, setEditCommissionLevels] = useState<{level: number, rate: number}[]>([]);
+    const [isEditingCommission, setIsEditingCommission] = useState(false);
 
     /* ── Data fetching ────────────────── */
     const fetchUsers = useCallback(async () => {
@@ -279,6 +281,34 @@ export default function AdminPage() {
         } catch (err: any) {
             toast.error(err.response?.data?.error || 'Failed');
         } finally { setProcessing(false); }
+    };
+
+    const handleUpdateCommissionLevels = async () => {
+        // Validate all rates
+        for (const lvl of editCommissionLevels) {
+            if (isNaN(lvl.rate) || lvl.rate < 0 || lvl.rate > 100) {
+                return toast.error(`Invalid rate for Level ${lvl.level} (0-100%)`);
+            }
+        }
+        setProcessing(true);
+        try {
+            await axios.patch('/api/admin/referral-settings', { commissionLevels: editCommissionLevels });
+            toast.success('Commission levels updated');
+            setIsEditingCommission(false);
+            fetchReferralSettings();
+        } catch (err: any) {
+            toast.error(err.response?.data?.error || 'Failed');
+        } finally { setProcessing(false); }
+    };
+
+    const handleEditCommission = () => {
+        setEditCommissionLevels(referralSettings?.commissionLevels || []);
+        setIsEditingCommission(true);
+    };
+
+    const handleCancelEditCommission = () => {
+        setIsEditingCommission(false);
+        setEditCommissionLevels([]);
     };
 
     /* ── Tab config ───────────────────── */
@@ -982,15 +1012,15 @@ export default function AdminPage() {
                         <h3 className="text-sm font-bold mb-4 flex items-center gap-2">
                             <CurrencyDollarIcon className="w-4 h-4 text-neon-green" /> Direct Referral Bonus Rate
                         </h3>
-                        <div className="flex gap-3 items-end">
+                        <div className="flex flex-col sm:flex-row gap-3 sm:items-end">
                             <div className="flex-1">
                                 <label className="form-label">Rate (%)</label>
                                 <input type="number" value={editReferralRate} onChange={(e) => setEditReferralRate(e.target.value)}
                                     placeholder="3" className="glass-input text-sm" step="0.1" min="0" max="100" />
-                                <p className="text-[10px] text-text-muted mt-1">Current: {((referralSettings?.referralBonusRate || 0.03) * 100).toFixed(1)}%</p>
+                                <p className="text-[10px] text-text-muted mt-1">Current: {((referralSettings?.referralBonusRate || 0.03) * 100).toFixed(1)}% (paid on first deposit)</p>
                             </div>
                             <button onClick={handleUpdateReferralRate} disabled={processing}
-                                className="btn-glow px-6 py-2.5 text-sm shrink-0">
+                                className="btn-glow px-6 py-2.5 text-sm shrink-0 w-full sm:w-auto">
                                 {processing ? 'Saving...' : 'Update'}
                             </button>
                         </div>
@@ -998,16 +1028,59 @@ export default function AdminPage() {
 
                     {/* Commission Levels */}
                     <div className="glass-card">
-                        <h3 className="text-sm font-bold mb-4 flex items-center gap-2">
-                            <ChartBarIcon className="w-4 h-4 text-neon-cyan" /> 6-Level Commission Structure
-                        </h3>
+                        <div className="flex items-center justify-between mb-4">
+                            <h3 className="text-sm font-bold flex items-center gap-2">
+                                <ChartBarIcon className="w-4 h-4 text-neon-cyan" /> 6-Level Commission Structure
+                            </h3>
+                            {!isEditingCommission && (
+                                <button onClick={handleEditCommission} className="btn-ghost text-xs px-3 py-1.5">
+                                    Edit Levels
+                                </button>
+                            )}
+                        </div>
                         <div className="space-y-2">
-                            {(referralSettings?.commissionLevels || []).map((lvl: any, i: number) => (
-                                <div key={i} className="inner-card flex items-center justify-between">
-                                    <span className="text-sm font-semibold">Level {lvl.level}</span>
-                                    <span className="text-sm font-mono text-neon-green">{(lvl.rate * 100).toFixed(2)}%</span>
-                                </div>
-                            ))}
+                            {isEditingCommission ? (
+                                <>
+                                    {editCommissionLevels.map((lvl, i) => (
+                                        <div key={i} className="inner-card flex items-center gap-3">
+                                            <span className="text-sm font-semibold w-20">Level {lvl.level}</span>
+                                            <div className="flex-1 flex items-center gap-2">
+                                                <input 
+                                                    type="number" 
+                                                    value={(lvl.rate * 100).toFixed(2)}
+                                                    onChange={(e) => {
+                                                        const newLevels = [...editCommissionLevels];
+                                                        newLevels[i].rate = parseFloat(e.target.value) / 100;
+                                                        setEditCommissionLevels(newLevels);
+                                                    }}
+                                                    className="glass-input text-sm py-1.5 w-24"
+                                                    step="0.01"
+                                                    min="0"
+                                                    max="100"
+                                                />
+                                                <span className="text-sm text-text-muted">%</span>
+                                            </div>
+                                        </div>
+                                    ))}
+                                    <div className="flex gap-2 mt-4">
+                                        <button onClick={handleUpdateCommissionLevels} disabled={processing}
+                                            className="btn-glow flex-1 text-sm py-2">
+                                            {processing ? 'Saving...' : 'Save Changes'}
+                                        </button>
+                                        <button onClick={handleCancelEditCommission} disabled={processing}
+                                            className="btn-ghost flex-1 text-sm py-2">
+                                            Cancel
+                                        </button>
+                                    </div>
+                                </>
+                            ) : (
+                                (referralSettings?.commissionLevels || []).map((lvl: any, i: number) => (
+                                    <div key={i} className="inner-card flex items-center justify-between">
+                                        <span className="text-sm font-semibold">Level {lvl.level}</span>
+                                        <span className="text-sm font-mono text-neon-green">{(lvl.rate * 100).toFixed(2)}%</span>
+                                    </div>
+                                ))
+                            )}
                         </div>
                         <p className="text-[10px] text-text-muted mt-3">Commission is paid on each trade from the user&apos;s downline chain up to 6 levels.</p>
                     </div>
@@ -1018,10 +1091,10 @@ export default function AdminPage() {
                             <BoltIcon className="w-4 h-4 text-warning" /> How Referral Works
                         </h3>
                         <ul className="space-y-2 text-[12px] text-text-secondary">
-                            <li className="flex items-start gap-2"><span className="text-warning">•</span> Direct referral bonus is paid when a referred user places a trade</li>
-                            <li className="flex items-start gap-2"><span className="text-warning">•</span> 6-level commission is paid to the upline chain on each trade</li>
-                            <li className="flex items-start gap-2"><span className="text-warning">•</span> Bonus/commission is credited instantly to wallet balance</li>
-                            <li className="flex items-start gap-2"><span className="text-warning">•</span> Changes to rates apply to future trades only</li>
+                            <li className="flex items-start gap-2"><span className="text-warning">•</span> Direct referral bonus: 3% of referred user&apos;s <strong>first deposit</strong> (one-time, paid on first trade)</li>
+                            <li className="flex items-start gap-2"><span className="text-warning">•</span> 6-level commission: Paid to upline chain on <strong>each trade</strong> by downline users</li>
+                            <li className="flex items-start gap-2"><span className="text-warning">•</span> All bonuses/commissions are credited instantly to wallet balance</li>
+                            <li className="flex items-start gap-2"><span className="text-warning">•</span> Changes to rates apply to future transactions only</li>
                         </ul>
                     </div>
                 </motion.div>
