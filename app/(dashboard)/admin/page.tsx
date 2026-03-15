@@ -1046,17 +1046,21 @@ export default function AdminPage() {
                                             <span className="text-sm font-semibold w-20">Level {lvl.level}</span>
                                             <div className="flex-1 flex items-center gap-2">
                                                 <input 
-                                                    type="number" 
+                                                    type="text"
+                                                    inputMode="decimal"
                                                     value={(lvl.rate * 100).toFixed(2)}
                                                     onChange={(e) => {
-                                                        const newLevels = [...editCommissionLevels];
-                                                        newLevels[i].rate = parseFloat(e.target.value) / 100;
-                                                        setEditCommissionLevels(newLevels);
+                                                        const val = e.target.value;
+                                                        // Allow empty, numbers, and decimal point
+                                                        if (val === '' || /^\d*\.?\d*$/.test(val)) {
+                                                            const newLevels = [...editCommissionLevels];
+                                                            const numVal = parseFloat(val);
+                                                            newLevels[i].rate = isNaN(numVal) ? 0 : Math.min(100, Math.max(0, numVal)) / 100;
+                                                            setEditCommissionLevels(newLevels);
+                                                        }
                                                     }}
                                                     className="glass-input text-sm py-1.5 w-24"
-                                                    step="0.01"
-                                                    min="0"
-                                                    max="100"
+                                                    placeholder="0.00"
                                                 />
                                                 <span className="text-sm text-text-muted">%</span>
                                             </div>
