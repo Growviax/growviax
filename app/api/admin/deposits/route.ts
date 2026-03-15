@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/user';
 import { query, queryOne } from '@/lib/db';
 
+const USD_TO_INR = 98; // Conversion rate
+
 // GET: List deposit requests for admin panel
 export async function GET(request: Request) {
     try {
@@ -99,15 +101,21 @@ export async function PATCH(request: Request) {
         }
 
         if (action === 'approve') {
-            const amount = parseFloat(depositReq.amount);
-            if (amount <= 0) {
+            const isUsdt = depositReq.deposit_type === 'usdt';
+            const originalAmount = parseFloat(depositReq.amount);
+            
+            if (originalAmount <= 0) {
                 return NextResponse.json({ error: 'Invalid deposit amount' }, { status: 400 });
             }
 
-            // Credit user balance
+            // For USDT: amount is in USD, convert to INR using 98 rate
+            // For UPI: amount is already in INR
+            const inrAmount = isUsdt ? originalAmount * USD_TO_INR : originalAmount;
+
+            // Credit user balance (always in INR)
             await query(
-                'UPDATE users SET wallet_balance = wallet_balance + ? WHERE id = ?',
-                [amount, depositReq.user_id]
+                'UPDATE users SET wallet_balance = wallet_balance + ?, total_deposited = total_deposited + ? WHERE id = ?',
+                [inrAmount, inrAmount, depositReq.user_id]
             );
 
             // Update deposit request
@@ -117,15 +125,14 @@ export async function PATCH(request: Request) {
             );
 
             // Create transaction record
-            const isUsdt = depositReq.deposit_type === 'usdt';
             await query(
                 `INSERT INTO transactions (user_id, type, amount, status, tx_hash, notes, network)
                  VALUES (?, 'deposit', ?, 'completed', ?, ?, ?)`,
                 [
                     depositReq.user_id,
-                    amount,
+                    inrAmount,
                     depositReq.tx_hash || depositReq.utr_number || null,
-                    `${isUsdt ? 'USDT' : 'UPI'} deposit approved by admin`,
+                    isUsdt ? `USDT deposit ($${originalAmount.toFixed(2)} × ${USD_TO_INR} = ₹${inrAmount.toFixed(2)})` : 'UPI deposit approved by admin',
                     isUsdt ? 'BEP20' : 'UPI',
                 ]
             );
@@ -134,11 +141,13 @@ export async function PATCH(request: Request) {
             await query(
                 `INSERT INTO admin_activity_log (admin_id, action_type, target_type, target_id, details)
                  VALUES (?, 'deposit_approve', 'deposit_request', ?, ?)`,
-                [user.id, requestId, `Approved ${isUsdt ? 'USDT' : 'UPI'} deposit of ${amount} for user ${depositReq.user_id}`]
+                [user.id, requestId, `Approved ${isUsdt ? 'USDT' : 'UPI'} deposit: ${isUsdt ? '$' + originalAmount.toFixed(2) + ' → ₹' + inrAmount.toFixed(2) : '₹' + inrAmount.toFixed(2)} for user ${depositReq.user_id}`]
             );
 
             return NextResponse.json({
-                message: `Deposit approved. ₹${amount.toFixed(2)} credited to user.`,
+                message: isUsdt 
+                    ? `Deposit approved. $${originalAmount.toFixed(2)} USDT → ₹${inrAmount.toFixed(2)} credited to user.`
+                    : `Deposit approved. ₹${inrAmount.toFixed(2)} credited to user.`,
             });
         } else {
             // Reject

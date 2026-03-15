@@ -118,7 +118,7 @@ export default function PromotionPage() {
                     <h2 className="font-bold text-sm flex items-center gap-2">
                         <StarIcon className="w-4 h-4 text-warning" /> Refer & Earn
                     </h2>
-                    <span className="text-[10px] text-text-muted uppercase tracking-wider">5% Commission</span>
+                    <span className="text-[10px] text-text-muted uppercase tracking-wider">3% Commission</span>
                 </div>
                 <div className="inner-card flex items-center justify-between mb-3">
                     <div>

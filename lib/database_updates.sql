@@ -222,8 +222,37 @@ INSERT INTO platform_settings (setting_key, setting_value) VALUES
 ON DUPLICATE KEY UPDATE setting_value = setting_value;
 
 INSERT INTO platform_settings (setting_key, setting_value) VALUES
-    ('min_deposit_upi', '500')
+    ('min_deposit_upi', '1000')
 ON DUPLICATE KEY UPDATE setting_value = setting_value;
+
+-- Referral and Commission Settings
+INSERT INTO platform_settings (setting_key, setting_value) VALUES
+    ('referral_bonus_rate', '0.03')
+ON DUPLICATE KEY UPDATE setting_value = setting_value;
+
+INSERT INTO platform_settings (setting_key, setting_value) VALUES
+    ('commission_levels', '[{"level":1,"rate":0.0081},{"level":2,"rate":0.0035},{"level":3,"rate":0.0017},{"level":4,"rate":0.001},{"level":5,"rate":0.0007},{"level":6,"rate":0.0004}]')
+ON DUPLICATE KEY UPDATE setting_value = setting_value;
+
+-- USD to INR conversion rate
+INSERT INTO platform_settings (setting_key, setting_value) VALUES
+    ('usd_to_inr_rate', '98')
+ON DUPLICATE KEY UPDATE setting_value = setting_value;
+
+-- =====================================================
+-- 10. REFERRAL EARNINGS TABLE (if not exists)
+-- =====================================================
+
+CREATE TABLE IF NOT EXISTS referral_earnings (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL,
+    from_user_id INT NOT NULL,
+    amount DECIMAL(18,8) NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_user (user_id),
+    INDEX idx_from_user (from_user_id),
+    INDEX idx_created (created_at)
+);
 
 -- =====================================================
 -- 9. CLEANUP: Remove processed_deposits table (no longer needed)

@@ -74,17 +74,29 @@ export async function PATCH(request: Request) {
 
         if (action === 'approve') {
             // Deduct balance now (was deferred from withdraw request)
-            if (txUser.wallet_balance < tx.amount) {
-                return NextResponse.json({ error: 'User has insufficient balance' }, { status: 400 });
+            const withdrawAmount = parseFloat(tx.amount);
+            const currentBalance = parseFloat(txUser.wallet_balance);
+            
+            if (currentBalance < withdrawAmount) {
+                return NextResponse.json({ 
+                    error: `User has insufficient balance. Required: ₹${withdrawAmount.toFixed(2)}, Available: ₹${currentBalance.toFixed(2)}` 
+                }, { status: 400 });
             }
 
-            await query('UPDATE users SET wallet_balance = wallet_balance - ? WHERE id = ? AND wallet_balance >= ?', [tx.amount, tx.user_id, tx.amount]);
+            // Deduct INR amount from wallet (already converted from USD if USDT withdrawal)
+            const result = await query('UPDATE users SET wallet_balance = wallet_balance - ? WHERE id = ? AND wallet_balance >= ?', [withdrawAmount, tx.user_id, withdrawAmount]);
+            
+            // Verify the update was successful
+            if (!result || (result as any).affectedRows === 0) {
+                return NextResponse.json({ error: 'Failed to deduct balance. User may have insufficient funds.' }, { status: 400 });
+            }
+
             await query('UPDATE transactions SET status = "completed", tx_hash = ?, notes = "Withdrawal approved by admin" WHERE id = ?', [txHash || null, transactionId]);
 
             // Send email
-            await sendWithdrawalApprovedEmail(txUser.email, parseFloat(tx.amount).toFixed(2));
+            await sendWithdrawalApprovedEmail(txUser.email, withdrawAmount.toFixed(2));
 
-            return NextResponse.json({ message: 'Withdrawal approved' });
+            return NextResponse.json({ message: `Withdrawal approved. ₹${withdrawAmount.toFixed(2)} deducted from user wallet.` });
         } else {
             // Reject - no balance deduction needed (was deferred)
             await query('UPDATE transactions SET status = "rejected", notes = ? WHERE id = ?', [reason || 'Rejected by admin', transactionId]);

@@ -3,6 +3,8 @@ import { getUserIdFromRequest } from '@/lib/user';
 import { query, queryOne } from '@/lib/db';
 import { z } from 'zod';
 
+const USD_TO_INR = 98; // Conversion rate
+
 const withdrawSchema = z.object({
     amount: z.number().positive('Amount must be positive'),
     withdrawMethod: z.enum(['usdt', 'upi']),
@@ -35,15 +37,28 @@ export async function POST(request: Request) {
             }
         }
 
-        // Check minimum amount
-        if (amount < 1000) {
-            return NextResponse.json({ error: 'Minimum withdrawal amount is ₹1,000' }, { status: 400 });
+        // Check minimum amount based on method
+        const MIN_WITHDRAW_USDT = 10; // $10 minimum
+        const MIN_WITHDRAW_UPI = 1000; // ₹1,000 minimum
+        
+        if (withdrawMethod === 'usdt') {
+            if (amount < MIN_WITHDRAW_USDT) {
+                return NextResponse.json({ error: `Minimum USDT withdrawal amount is $${MIN_WITHDRAW_USDT}` }, { status: 400 });
+            }
+        } else {
+            if (amount < MIN_WITHDRAW_UPI) {
+                return NextResponse.json({ error: `Minimum UPI withdrawal amount is ₹${MIN_WITHDRAW_UPI}` }, { status: 400 });
+            }
         }
 
-        // Check balance
+        // Convert USDT amount to INR for storage and balance check
+        const inrAmount = withdrawMethod === 'usdt' ? amount * USD_TO_INR : amount;
+        const originalUsdAmount = withdrawMethod === 'usdt' ? amount : null;
+
+        // Check balance (using INR amount)
         const user = await queryOne<any>('SELECT wallet_balance FROM users WHERE id = ?', [userId]);
-        if (!user || user.wallet_balance < amount) {
-            return NextResponse.json({ error: 'Insufficient balance' }, { status: 400 });
+        if (!user || user.wallet_balance < inrAmount) {
+            return NextResponse.json({ error: `Insufficient balance. Required: ₹${inrAmount.toFixed(2)}, Available: ₹${Number(user?.wallet_balance || 0).toFixed(2)}` }, { status: 400 });
         }
 
         // Check trade volume requirement: user must trade at least their total deposit amount
@@ -69,14 +84,20 @@ export async function POST(request: Request) {
         // Record transaction as pending (balance NOT deducted until admin approval)
         const address = withdrawMethod === 'usdt' ? walletAddress : upiId;
         const network = withdrawMethod === 'usdt' ? 'BEP20' : 'UPI';
-        const notes = `${withdrawMethod.toUpperCase()} withdrawal request – pending admin approval`;
+        const notes = originalUsdAmount 
+            ? `USDT withdrawal request: $${originalUsdAmount.toFixed(2)} × ${USD_TO_INR} = ₹${inrAmount.toFixed(2)} – pending admin approval`
+            : 'UPI withdrawal request – pending admin approval';
 
         await query(
             'INSERT INTO transactions (user_id, type, amount, wallet_address, status, notes, network) VALUES (?, "withdrawal", ?, ?, "pending", ?, ?)',
-            [userId, amount, address, notes, network]
+            [userId, inrAmount, address, notes, network]
         );
 
-        return NextResponse.json({ message: 'Withdrawal request submitted. It will be processed within 24 hours.' });
+        return NextResponse.json({ 
+            message: withdrawMethod === 'usdt'
+                ? `USDT withdrawal request for $${amount.toFixed(2)} (₹${inrAmount.toFixed(2)}) submitted. It will be processed within 24 hours.`
+                : 'UPI withdrawal request submitted. It will be processed within 24 hours.'
+        });
     } catch (error: any) {
         console.error('Withdraw error:', error);
         return NextResponse.json({ error: 'Internal server error' }, { status: 500 });

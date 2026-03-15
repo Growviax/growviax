@@ -15,7 +15,7 @@ import {
 import clsx from 'clsx';
 import dayjs from 'dayjs';
 
-type AdminTab = 'users' | 'deposits' | 'withdrawals' | 'support' | 'trading' | 'settings' | 'upi';
+type AdminTab = 'users' | 'deposits' | 'withdrawals' | 'support' | 'trading' | 'settings' | 'upi' | 'referral';
 
 export default function AdminPage() {
     const [tab, setTab] = useState<AdminTab>('users');
@@ -68,6 +68,11 @@ export default function AdminPage() {
     const [upiAccounts, setUpiAccounts] = useState<any[]>([]);
     const [newUpiId, setNewUpiId] = useState('');
     const [newUpiName, setNewUpiName] = useState('');
+
+    /* ── Referral settings state ──────── */
+    const [referralSettings, setReferralSettings] = useState<any>(null);
+    const [referralStats, setReferralStats] = useState<any>(null);
+    const [editReferralRate, setEditReferralRate] = useState('');
 
     /* ── Data fetching ────────────────── */
     const fetchUsers = useCallback(async () => {
@@ -122,6 +127,15 @@ export default function AdminPage() {
         } catch { } finally { setLoading(false); }
     }, []);
 
+    const fetchReferralSettings = useCallback(async () => {
+        try {
+            const res = await axios.get('/api/admin/referral-settings');
+            setReferralSettings(res.data.settings);
+            setReferralStats(res.data.stats);
+            setEditReferralRate(String((res.data.settings?.referralBonusRate || 0.03) * 100));
+        } catch { } finally { setLoading(false); }
+    }, []);
+
     useEffect(() => {
         if (tab === 'users') fetchUsers();
         else if (tab === 'deposits') fetchDepositRequests();
@@ -129,8 +143,9 @@ export default function AdminPage() {
         else if (tab === 'support') fetchTickets();
         else if (tab === 'trading') fetchTradeControl();
         else if (tab === 'upi') fetchUpiAccounts();
+        else if (tab === 'referral') fetchReferralSettings();
         else setLoading(false);
-    }, [tab, fetchUsers, fetchTransactions, fetchTickets, fetchTradeControl, fetchDepositRequests, fetchUpiAccounts]);
+    }, [tab, fetchUsers, fetchTransactions, fetchTickets, fetchTradeControl, fetchDepositRequests, fetchUpiAccounts, fetchReferralSettings]);
 
     /* ── Actions ──────────────────────── */
     const handleBalanceAdjust = async () => {
@@ -250,12 +265,29 @@ export default function AdminPage() {
         } catch { toast.error('Failed'); }
     };
 
+    /* ── Referral settings handler ────── */
+    const handleUpdateReferralRate = async () => {
+        const rate = parseFloat(editReferralRate) / 100;
+        if (isNaN(rate) || rate < 0 || rate > 100) {
+            return toast.error('Invalid rate (0-100%)');
+        }
+        setProcessing(true);
+        try {
+            await axios.patch('/api/admin/referral-settings', { referralBonusRate: rate });
+            toast.success('Referral rate updated');
+            fetchReferralSettings();
+        } catch (err: any) {
+            toast.error(err.response?.data?.error || 'Failed');
+        } finally { setProcessing(false); }
+    };
+
     /* ── Tab config ───────────────────── */
     const tabs: { key: AdminTab; label: string; icon: any }[] = [
         { key: 'users', label: 'Users', icon: UsersIcon },
         { key: 'deposits', label: 'Deposits', icon: ArrowDownTrayIcon },
         { key: 'withdrawals', label: 'Withdrawals', icon: ArrowUpTrayIcon },
         { key: 'trading', label: 'Trading', icon: ChartBarIcon },
+        { key: 'referral', label: 'Referral', icon: CurrencyDollarIcon },
         { key: 'upi', label: 'UPI', icon: BanknotesIcon },
         { key: 'support', label: 'Support', icon: TicketIcon },
         { key: 'settings', label: 'Settings', icon: AdjustmentsHorizontalIcon },
@@ -428,7 +460,12 @@ export default function AdminPage() {
                                         </div>
                                     </div>
                                     <div className="text-left sm:text-right sm:shrink-0">
-                                        <p className="text-sm font-bold text-neon-green">₹{parseFloat(dr.amount).toFixed(2)}</p>
+                                        <p className="text-sm font-bold text-neon-green">
+                                            {dr.deposit_type === 'usdt' ? `$${parseFloat(dr.amount).toFixed(2)}` : `₹${parseFloat(dr.amount).toFixed(2)}`}
+                                        </p>
+                                        {dr.deposit_type === 'usdt' && (
+                                            <p className="text-[10px] text-text-muted">≈ ₹{(parseFloat(dr.amount) * 98).toFixed(0)}</p>
+                                        )}
                                         <span className={clsx('text-[10px] font-semibold px-2 py-0.5 rounded-full',
                                             dr.deposit_type === 'usdt' ? 'bg-neon-cyan/15 text-neon-cyan' : 'bg-neon-green/15 text-neon-green'
                                         )}>{dr.deposit_type?.toUpperCase()}</span>
@@ -533,9 +570,16 @@ export default function AdminPage() {
                                         <p className="text-[10px] text-text-muted">{dayjs(tx.created_at).format('MMM D, HH:mm')}</p>
                                     </div>
                                 </div>
-                                {tx.wallet_address && (
-                                    <p className="text-[10px] text-text-muted font-mono truncate mt-1">To: {tx.wallet_address}</p>
-                                )}
+                                <div className="flex items-center gap-2 mt-1">
+                                    <span className={clsx('px-2 py-0.5 rounded-full text-[10px] font-semibold',
+                                        (tx.notes?.includes('UPI') || tx.wallet_address?.includes('@')) ? 'bg-neon-green/15 text-neon-green' : 'bg-neon-cyan/15 text-neon-cyan'
+                                    )}>
+                                        {(tx.notes?.includes('UPI') || tx.wallet_address?.includes('@')) ? 'UPI' : 'USDT'}
+                                    </span>
+                                    {tx.wallet_address && (
+                                        <p className="text-[10px] text-text-muted font-mono truncate flex-1 min-w-0">To: {tx.wallet_address}</p>
+                                    )}
+                                </div>
                                 {tx.status === 'pending' && (
                                     <div className="flex gap-2 mt-3">
                                         <button
@@ -906,6 +950,79 @@ export default function AdminPage() {
                             ))}
                             {upiAccounts.length === 0 && <p className="text-sm text-text-muted text-center py-6">No UPI accounts configured</p>}
                         </div>
+                    </div>
+                </motion.div>
+            )}
+
+            {/* ═══════════ REFERRAL TAB ═══════════ */}
+            {tab === 'referral' && (
+                <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
+                    {/* Stats */}
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                        <div className="glass-card text-center">
+                            <p className="text-xl font-bold text-neon-green">{referralStats?.totalReferrers || 0}</p>
+                            <p className="text-[10px] text-text-muted uppercase">Referrers</p>
+                        </div>
+                        <div className="glass-card text-center">
+                            <p className="text-xl font-bold text-neon-cyan">{referralStats?.totalReferralTransactions || 0}</p>
+                            <p className="text-[10px] text-text-muted uppercase">Transactions</p>
+                        </div>
+                        <div className="glass-card text-center">
+                            <p className="text-xl font-bold text-warning">₹{(referralStats?.totalReferralPaid || 0).toFixed(2)}</p>
+                            <p className="text-[10px] text-text-muted uppercase">Referral Paid</p>
+                        </div>
+                        <div className="glass-card text-center">
+                            <p className="text-xl font-bold text-neon-purple">₹{(referralStats?.totalCommissionPaid || 0).toFixed(2)}</p>
+                            <p className="text-[10px] text-text-muted uppercase">Commission Paid</p>
+                        </div>
+                    </div>
+
+                    {/* Referral Rate Setting */}
+                    <div className="glass-card">
+                        <h3 className="text-sm font-bold mb-4 flex items-center gap-2">
+                            <CurrencyDollarIcon className="w-4 h-4 text-neon-green" /> Direct Referral Bonus Rate
+                        </h3>
+                        <div className="flex gap-3 items-end">
+                            <div className="flex-1">
+                                <label className="form-label">Rate (%)</label>
+                                <input type="number" value={editReferralRate} onChange={(e) => setEditReferralRate(e.target.value)}
+                                    placeholder="3" className="glass-input text-sm" step="0.1" min="0" max="100" />
+                                <p className="text-[10px] text-text-muted mt-1">Current: {((referralSettings?.referralBonusRate || 0.03) * 100).toFixed(1)}%</p>
+                            </div>
+                            <button onClick={handleUpdateReferralRate} disabled={processing}
+                                className="btn-glow px-6 py-2.5 text-sm shrink-0">
+                                {processing ? 'Saving...' : 'Update'}
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* Commission Levels */}
+                    <div className="glass-card">
+                        <h3 className="text-sm font-bold mb-4 flex items-center gap-2">
+                            <ChartBarIcon className="w-4 h-4 text-neon-cyan" /> 6-Level Commission Structure
+                        </h3>
+                        <div className="space-y-2">
+                            {(referralSettings?.commissionLevels || []).map((lvl: any, i: number) => (
+                                <div key={i} className="inner-card flex items-center justify-between">
+                                    <span className="text-sm font-semibold">Level {lvl.level}</span>
+                                    <span className="text-sm font-mono text-neon-green">{(lvl.rate * 100).toFixed(2)}%</span>
+                                </div>
+                            ))}
+                        </div>
+                        <p className="text-[10px] text-text-muted mt-3">Commission is paid on each trade from the user&apos;s downline chain up to 6 levels.</p>
+                    </div>
+
+                    {/* How it works */}
+                    <div className="glass-card">
+                        <h3 className="text-sm font-bold mb-3 flex items-center gap-2">
+                            <BoltIcon className="w-4 h-4 text-warning" /> How Referral Works
+                        </h3>
+                        <ul className="space-y-2 text-[12px] text-text-secondary">
+                            <li className="flex items-start gap-2"><span className="text-warning">•</span> Direct referral bonus is paid when a referred user places a trade</li>
+                            <li className="flex items-start gap-2"><span className="text-warning">•</span> 6-level commission is paid to the upline chain on each trade</li>
+                            <li className="flex items-start gap-2"><span className="text-warning">•</span> Bonus/commission is credited instantly to wallet balance</li>
+                            <li className="flex items-start gap-2"><span className="text-warning">•</span> Changes to rates apply to future trades only</li>
+                        </ul>
                     </div>
                 </motion.div>
             )}

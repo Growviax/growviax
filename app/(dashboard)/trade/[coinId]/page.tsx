@@ -146,9 +146,8 @@ export default function TradePage() {
             const remaining = Math.max(0, Math.ceil((endTime - Date.now()) / 1000));
             setTimeLeft(remaining);
 
-            // Trigger countdown popup at 10 seconds
-            const hasOpenTrade = trades.some((t) => t.status === 'pending');
-            if (remaining <= 10 && remaining > 0 && hasOpenTrade && !countdownTriggered) {
+            // Trigger countdown popup at 10 seconds for ALL users (not just those with open trades)
+            if (remaining <= 10 && remaining > 0 && !countdownTriggered) {
                 setShowCountdown(true);
                 setCountdownTriggered(true);
             }
@@ -653,10 +652,10 @@ export default function TradePage() {
                     </div>
                 )}
 
-                <button onClick={placeBid} disabled={placing || !finalAmount}
-                    className={clsx('w-full py-3.5 rounded-2xl font-bold transition-all text-base', direction === 'up' ? 'btn-glow' : 'btn-danger')}
+                <button onClick={placeBid} disabled={placing || !finalAmount || timeLeft <= 10}
+                    className={clsx('w-full py-3.5 rounded-2xl font-bold transition-all text-base', direction === 'up' ? 'btn-glow' : 'btn-danger', timeLeft <= 10 && 'opacity-50 cursor-not-allowed')}
                 >
-                    {placing ? 'Placing...' : `Place ${direction.toUpperCase()} Bid — ₹${finalAmount}`}
+                    {timeLeft <= 10 ? `Betting Closed (${timeLeft}s)` : placing ? 'Placing...' : `Place ${direction.toUpperCase()} Bid — ₹${finalAmount}`}
                 </button>
             </div>
 

@@ -15,8 +15,10 @@ import {
 import clsx from 'clsx';
 import dayjs from 'dayjs';
 
-const MIN_AMOUNT = 1000; // ₹1,000 minimum
+const MIN_WITHDRAW_UPI = 1000; // ₹1,000 minimum for UPI
+const MIN_WITHDRAW_USDT = 10; // $10 minimum for USDT (≈ ₹980)
 const ITEMS_PER_PAGE = 10;
+const USD_TO_INR = 98; // Conversion rate
 
 type WalletInfo = {
     wallet_balance: number | string;
@@ -179,9 +181,12 @@ function AssetsContent() {
         e.preventDefault();
         const amt = parseFloat(withdrawAmount);
         if (!amt || amt <= 0) return toast.error('Enter a valid amount');
-        if (amt < MIN_AMOUNT) return toast.error(`Minimum withdrawal is ₹${MIN_AMOUNT.toLocaleString()}`);
-        if (amt > Number(user?.wallet_balance || 0)) return toast.error('Insufficient balance');
-
+        
+        // Check minimum based on method
+        const minAmount = withdrawMethod === 'usdt' ? MIN_WITHDRAW_USDT : MIN_WITHDRAW_UPI;
+        const currencySymbol = withdrawMethod === 'usdt' ? '$' : '₹';
+        if (amt < minAmount) return toast.error(`Minimum withdrawal is ${currencySymbol}${minAmount.toLocaleString()}`);
+        
         if (withdrawMethod === 'usdt') {
             if (!withdrawAddress.trim()) return toast.error('Wallet address is required');
             if (!/^0x[a-fA-F0-9]{40}$/.test(withdrawAddress.trim())) return toast.error('Invalid wallet address format (must be 0x...)');
@@ -390,10 +395,18 @@ function AssetsContent() {
 
                                     <div className="space-y-4">
                                         <div>
-                                            <label className="form-label">Deposit Amount (INR)</label>
-                                            <input type="number" value={depositAmountInput} onChange={(e) => setDepositAmountInput(e.target.value)}
-                                                placeholder="e.g. 5000" className="glass-input text-sm" min="1" step="0.01" />
-                                            <p className="text-[10px] text-text-muted mt-1">Enter the INR equivalent of USDT sent</p>
+                                            <label className="form-label">Deposit Amount (USD)</label>
+                                            <div className="relative">
+                                                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-neon-green font-bold">$</span>
+                                                <input type="number" value={depositAmountInput} onChange={(e) => setDepositAmountInput(e.target.value)}
+                                                    placeholder="e.g. 50" className="glass-input text-sm pl-7" min="1" step="0.01" />
+                                            </div>
+                                            <p className="text-[10px] text-text-muted mt-1">
+                                                Enter USDT amount sent. Will be converted at <span className="text-neon-green">₹{USD_TO_INR}/USD</span>
+                                                {depositAmountInput && parseFloat(depositAmountInput) > 0 && (
+                                                    <span className="text-neon-cyan ml-1">≈ ₹{(parseFloat(depositAmountInput) * USD_TO_INR).toLocaleString()}</span>
+                                                )}
+                                            </p>
                                         </div>
                                         <div>
                                             <label className="form-label">Transaction Hash (BSCScan)</label>
@@ -565,22 +578,33 @@ function AssetsContent() {
                                     {/* Amount */}
                                     <div>
                                         <label className="form-label flex items-center gap-2">
-                                            <BanknotesIcon className="w-4 h-4 text-text-muted" /> Amount (₹)
+                                            {withdrawMethod === 'usdt' ? (
+                                                <><WalletIcon className="w-4 h-4 text-text-muted" /> Amount ($)</>
+                                            ) : (
+                                                <><BanknotesIcon className="w-4 h-4 text-text-muted" /> Amount (₹)</>
+                                            )}
                                         </label>
-                                        <input
-                                            type="number"
-                                            value={withdrawAmount}
-                                            onChange={(e) => setWithdrawAmount(e.target.value)}
-                                            placeholder="0.00"
-                                            className="glass-input text-lg font-semibold"
-                                            step="0.01"
-                                            min="0"
-                                        />
+                                        <div className="relative">
+                                            {withdrawMethod === 'usdt' && (
+                                                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-neon-cyan font-bold">$</span>
+                                            )}
+                                            <input
+                                                type="number"
+                                                value={withdrawAmount}
+                                                onChange={(e) => setWithdrawAmount(e.target.value)}
+                                                placeholder={withdrawMethod === 'usdt' ? "10.00" : "1000.00"}
+                                                className={clsx('glass-input text-lg font-semibold', withdrawMethod === 'usdt' && 'pl-7')}
+                                                step="0.01"
+                                                min={withdrawMethod === 'usdt' ? MIN_WITHDRAW_USDT : MIN_WITHDRAW_UPI}
+                                            />
+                                        </div>
                                         <div className="flex items-center justify-between mt-2">
                                             <p className="text-xs text-text-muted flex items-center gap-1">
                                                 Available: <span className="text-neon-green font-medium">₹{Number(user?.wallet_balance || 0).toFixed(2)}</span>
                                             </p>
-                                            <p className="text-xs text-text-muted">Fee: <span className="text-neon-green font-medium">₹0.00</span></p>
+                                            <p className="text-xs text-text-muted">
+                                                Min: <span className="text-neon-green font-medium">{withdrawMethod === 'usdt' ? `$${MIN_WITHDRAW_USDT}` : `₹${MIN_WITHDRAW_UPI}`}</span>
+                                            </p>
                                         </div>
                                         {/* Quick amount buttons */}
                                         <div className="flex gap-1.5 mt-2.5">
@@ -661,17 +685,49 @@ function AssetsContent() {
                                 </form>
 
                                 {/* Withdrawal Instructions */}
-                                <div className="mt-5 p-4 rounded-2xl border border-warning/20 bg-warning/5">
-                                    <h3 className="text-sm font-bold text-warning mb-3">Withdrawal Instructions</h3>
-                                    <ul className="space-y-2 text-[12px] text-text-secondary">
-                                        <li className="flex items-start gap-2"><span className="text-warning">•</span> Need to trade <span className="text-warning font-semibold">₹{Math.max(0, Math.ceil((user?.total_deposited || 0) - (user?.total_traded || 0))).toLocaleString()}</span> more to unlock withdrawal (Deposit: ₹{Math.floor(user?.total_deposited || 0).toLocaleString()}, Traded: ₹{Math.floor(user?.total_traded || 0).toLocaleString()}).</li>
-                                        <li className="flex items-start gap-2"><span className="text-warning">•</span> Get withdrawal within <span className="text-warning font-semibold">24 hrs</span>.</li>
-                                        <li className="flex items-start gap-2"><span className="text-warning">•</span> The minimum withdrawal amount is <span className="text-warning font-semibold">₹1,000.00</span> INR.</li>
-                                        <li className="flex items-start gap-2"><span className="text-warning">•</span> The maximum withdrawal amount is <span className="text-warning font-semibold">₹10,000,000.00</span> INR.</li>
-                                        <li className="flex items-start gap-2"><span className="text-warning">•</span> You can withdraw <span className="text-warning font-semibold">4 times</span> a day.</li>
-                                        <li className="flex items-start gap-2"><span className="text-warning">•</span> Please ensure that the account details are correct before submitting.</li>
-                                        <li className="flex items-start gap-2"><span className="text-warning">•</span> If you have any issues, please contact our <span className="text-warning font-semibold">support team</span>.</li>
-                                    </ul>
+                                <div className="mt-5 rounded-2xl border border-warning/20 bg-warning/5 overflow-hidden">
+                                    <div className="px-4 py-3 border-b border-warning/10 bg-warning/5">
+                                        <h3 className="text-sm font-bold text-warning flex items-center gap-2">
+                                            <ExclamationTriangleIcon className="w-4 h-4" /> Withdrawal Instructions
+                                        </h3>
+                                    </div>
+                                    <div className="p-4 space-y-3">
+                                        {/* Trade Requirement */}
+                                        <div className="inner-card !bg-dark-surface/50">
+                                            <p className="text-[11px] text-text-muted mb-1">Trade Requirement</p>
+                                            <p className="text-sm text-text-secondary">
+                                                Trade <span className="text-warning font-bold">₹{Math.max(0, Math.ceil((user?.total_deposited || 0) - (user?.total_traded || 0))).toLocaleString()}</span> more to unlock
+                                            </p>
+                                            <div className="flex gap-4 mt-2 text-[11px] text-text-muted">
+                                                <span>Deposited: ₹{Math.floor(user?.total_deposited || 0).toLocaleString()}</span>
+                                                <span>Traded: ₹{Math.floor(user?.total_traded || 0).toLocaleString()}</span>
+                                            </div>
+                                        </div>
+                                        {/* Rules Grid */}
+                                        <div className="grid grid-cols-2 gap-2 text-[11px]">
+                                            <div className="inner-card !bg-dark-surface/50 text-center">
+                                                <p className="text-warning font-bold text-sm">24 hrs</p>
+                                                <p className="text-text-muted">Processing Time</p>
+                                            </div>
+                                            <div className="inner-card !bg-dark-surface/50 text-center">
+                                                <p className="text-warning font-bold text-sm">
+                                                    {withdrawMethod === 'usdt' ? '$10' : '₹1,000'}
+                                                </p>
+                                                <p className="text-text-muted">Minimum</p>
+                                            </div>
+                                            <div className="inner-card !bg-dark-surface/50 text-center">
+                                                <p className="text-warning font-bold text-sm">₹1 Cr</p>
+                                                <p className="text-text-muted">Maximum</p>
+                                            </div>
+                                            <div className="inner-card !bg-dark-surface/50 text-center">
+                                                <p className="text-warning font-bold text-sm">4/day</p>
+                                                <p className="text-text-muted">Daily Limit</p>
+                                            </div>
+                                        </div>
+                                        <p className="text-[11px] text-text-muted text-center">
+                                            Ensure account details are correct. Contact <span className="text-warning">support</span> for issues.
+                                        </p>
+                                    </div>
                                 </div>
                             </motion.div>
                         )}
@@ -744,15 +800,25 @@ function AssetsContent() {
                                         )}>
                                             {historyTab === 'deposit' ? '+' : '-'}₹{Number(tx.amount).toFixed(2)}
                                         </p>
+                                        {tx.notes?.includes('USDT deposit') && (
+                                            <p className="text-[10px] text-text-muted">{tx.notes.match(/\$[\d.]+/)?.[0] || ''}</p>
+                                        )}
                                         {statusBadge(tx.status)}
                                     </div>
                                 </div>
                                 {/* Details Row */}
                                 <div className="flex items-center justify-between mt-2 pt-2 border-t border-glass-border">
                                     <div className="flex items-center gap-3 text-[11px] text-text-muted">
-                                        <span>Network: <span className="text-text-secondary font-medium">BEP20</span></span>
+                                        <span className={clsx('px-2 py-0.5 rounded-full text-[10px] font-semibold',
+                                            (tx.notes?.includes('UPI') || tx.wallet_address?.includes('@')) ? 'bg-neon-green/15 text-neon-green' : 'bg-neon-cyan/15 text-neon-cyan'
+                                        )}>
+                                            {(tx.notes?.includes('UPI') || tx.wallet_address?.includes('@')) ? 'UPI' : 'USDT'}
+                                        </span>
                                         {tx.tx_hash && (
-                                            <span className="truncate max-w-[120px]">TxID: <span className="text-text-secondary font-mono">{tx.tx_hash}</span></span>
+                                            <span className="truncate max-w-[100px]">Hash: <span className="text-text-secondary font-mono">{tx.tx_hash.slice(0, 10)}...</span></span>
+                                        )}
+                                        {tx.wallet_address && !tx.tx_hash && (
+                                            <span className="truncate max-w-[100px]">To: <span className="text-text-secondary font-mono">{tx.wallet_address.slice(0, 12)}...</span></span>
                                         )}
                                     </div>
                                 </div>

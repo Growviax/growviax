@@ -108,16 +108,31 @@ export async function POST() {
                 continue;
             }
 
-            // ═══════ SINGLE BET (one side only) → Smart Outcome Engine ═══════
+            // ═══════ SINGLE BET (one side only) → Check Admin Override First, then Smart Outcome Engine ═══════
             if (totalUp === 0 || totalDown === 0) {
                 const bids = await query<BidRow[]>('SELECT * FROM bids WHERE round_id = ? AND status = "pending"', [round.id]);
                 const winningSideForSingle = totalUp > 0 ? 'up' : 'down';
 
                 for (const bid of bids) {
                     const netAmount = Number(bid.amount);
+                    let decision: OutcomeDecision;
 
-                    // Use Smart Outcome Engine for each bid
-                    const decision = await determineSingleBetOutcome(bid.id, bid.user_id, netAmount);
+                    // Check admin manual override FIRST (applies to both single and multi bets)
+                    if (tradeMode === 'manual' && (manualWinner === 'up' || manualWinner === 'down')) {
+                        const adminWantsWin = bid.direction === manualWinner;
+                        decision = {
+                            shouldWin: adminWantsWin,
+                            source: 'admin_override',
+                            reason: `Admin manual override: ${manualWinner} wins`,
+                            riskScore: 0,
+                            platformExposure: 0,
+                        };
+                        // Clear manual winner after first use
+                        await setSetting('manual_winner', '');
+                    } else {
+                        // Use Smart Outcome Engine for each bid
+                        decision = await determineSingleBetOutcome(bid.id, bid.user_id, netAmount);
+                    }
 
                     if (decision.shouldWin) {
                         await processBidWin(bid, round.id, decision);
