@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/user';
-import { query, queryOne } from '@/lib/db';
 
 /**
  * Deposit wallets — server-side source of truth
@@ -14,7 +13,7 @@ const DEPOSIT_WALLETS = [
     { qr: '/img/qr5.jpeg', address: '0xED7D925FAab46C08fbbaba6AFbC382C6533c403a' },
 ];
 
-// POST: Generate a deposit request — assign a wallet to the user
+// POST: Get a random wallet for USDT deposit (no DB record yet, user submits hash separately)
 export async function POST() {
     try {
         const user = await getCurrentUser();
@@ -22,42 +21,35 @@ export async function POST() {
             return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
         }
 
-        // Check if user already has an active (pending) deposit request
-        const existing = await queryOne<any>(
-            'SELECT id, wallet_address FROM deposit_requests WHERE user_id = ? AND status = "pending" AND (expires_at IS NULL OR expires_at > NOW()) ORDER BY created_at DESC LIMIT 1',
-            [user.id]
-        );
-
-        if (existing) {
-            // Return the existing wallet assignment
-            const wallet = DEPOSIT_WALLETS.find(
-                (w) => w.address.toLowerCase() === existing.wallet_address.toLowerCase()
-            );
-            return NextResponse.json({
-                wallet_address: existing.wallet_address,
-                qr: wallet?.qr || '/img/qr1.jpeg',
-                request_id: existing.id,
-                reused: true,
-            });
-        }
-
         // Pick a random wallet
         const selectedWallet = DEPOSIT_WALLETS[Math.floor(Math.random() * DEPOSIT_WALLETS.length)];
-
-        // Create deposit request in database (expires in 2 hours)
-        const result = await query<any>(
-            'INSERT INTO deposit_requests (user_id, wallet_address, status, expires_at) VALUES (?, ?, "pending", DATE_ADD(NOW(), INTERVAL 2 HOUR))',
-            [user.id, selectedWallet.address]
-        );
 
         return NextResponse.json({
             wallet_address: selectedWallet.address,
             qr: selectedWallet.qr,
-            request_id: result.insertId,
-            reused: false,
+            wallets: DEPOSIT_WALLETS,
         });
     } catch (error: any) {
-        console.error('Deposit request error:', error);
-        return NextResponse.json({ error: 'Failed to generate deposit info' }, { status: 500 });
+        console.error('Deposit wallet error:', error);
+        return NextResponse.json({ error: 'Failed to get deposit info' }, { status: 500 });
+    }
+}
+
+// GET: Get all wallets list (for deposit page)
+export async function GET() {
+    try {
+        const user = await getCurrentUser();
+        if (!user) {
+            return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+        }
+
+        const randomIdx = Math.floor(Math.random() * DEPOSIT_WALLETS.length);
+        return NextResponse.json({
+            wallet: DEPOSIT_WALLETS[randomIdx],
+            wallets: DEPOSIT_WALLETS,
+        });
+    } catch (error: any) {
+        console.error('Deposit wallet GET error:', error);
+        return NextResponse.json({ error: 'Failed to get deposit info' }, { status: 500 });
     }
 }

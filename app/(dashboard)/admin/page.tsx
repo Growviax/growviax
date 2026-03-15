@@ -15,7 +15,7 @@ import {
 import clsx from 'clsx';
 import dayjs from 'dayjs';
 
-type AdminTab = 'users' | 'deposits' | 'withdrawals' | 'support' | 'trading' | 'settings';
+type AdminTab = 'users' | 'deposits' | 'withdrawals' | 'support' | 'trading' | 'settings' | 'upi';
 
 export default function AdminPage() {
     const [tab, setTab] = useState<AdminTab>('users');
@@ -55,6 +55,20 @@ export default function AdminPage() {
     const [tradeDuration, setTradeDuration] = useState('7d');
     const [updating, setUpdating] = useState(false);
 
+    /* ── Deposit requests state ─────── */
+    const [depositRequests, setDepositRequests] = useState<any[]>([]);
+    const [depositStats, setDepositStats] = useState<any>(null);
+    const [depositTypeFilter, setDepositTypeFilter] = useState('all');
+    const [depositStatusFilter, setDepositStatusFilter] = useState('pending');
+    const [depositPage, setDepositPage] = useState(1);
+    const [depositTotalPages, setDepositTotalPages] = useState(1);
+    const [depositActionNote, setDepositActionNote] = useState('');
+
+    /* ── UPI management state ──────── */
+    const [upiAccounts, setUpiAccounts] = useState<any[]>([]);
+    const [newUpiId, setNewUpiId] = useState('');
+    const [newUpiName, setNewUpiName] = useState('');
+
     /* ── Data fetching ────────────────── */
     const fetchUsers = useCallback(async () => {
         try {
@@ -90,14 +104,33 @@ export default function AdminPage() {
         } catch { } finally { setLoading(false); }
     }, [tradeDuration]);
 
+    const fetchDepositRequests = useCallback(async () => {
+        try {
+            const res = await axios.get('/api/admin/deposits', {
+                params: { status: depositStatusFilter, type: depositTypeFilter, page: depositPage },
+            });
+            setDepositRequests(res.data.deposits || []);
+            setDepositStats(res.data.stats || null);
+            setDepositTotalPages(res.data.totalPages || 1);
+        } catch { } finally { setLoading(false); }
+    }, [depositStatusFilter, depositTypeFilter, depositPage]);
+
+    const fetchUpiAccounts = useCallback(async () => {
+        try {
+            const res = await axios.get('/api/admin/upi');
+            setUpiAccounts(res.data.accounts || []);
+        } catch { } finally { setLoading(false); }
+    }, []);
+
     useEffect(() => {
         if (tab === 'users') fetchUsers();
-        else if (tab === 'deposits') fetchTransactions('deposit');
+        else if (tab === 'deposits') fetchDepositRequests();
         else if (tab === 'withdrawals') fetchTransactions('withdrawal');
         else if (tab === 'support') fetchTickets();
         else if (tab === 'trading') fetchTradeControl();
+        else if (tab === 'upi') fetchUpiAccounts();
         else setLoading(false);
-    }, [tab, fetchUsers, fetchTransactions, fetchTickets, fetchTradeControl]);
+    }, [tab, fetchUsers, fetchTransactions, fetchTickets, fetchTradeControl, fetchDepositRequests, fetchUpiAccounts]);
 
     /* ── Actions ──────────────────────── */
     const handleBalanceAdjust = async () => {
@@ -179,11 +212,42 @@ export default function AdminPage() {
         } catch { toast.error('Failed to run salary check'); }
     };
 
-    const handleRunMonitor = async () => {
+    const handleDepositAction = async (requestId: number, action: 'approve' | 'reject') => {
+        setProcessing(true);
         try {
-            const res = await axios.post('/api/blockchain/monitor');
-            toast.success(res.data.message);
-        } catch { toast.error('Failed to run blockchain monitor'); }
+            await axios.patch('/api/admin/deposits', { requestId, action, adminNote: depositActionNote });
+            toast.success(action === 'approve' ? 'Deposit approved & credited' : 'Deposit rejected');
+            setDepositActionNote('');
+            fetchDepositRequests();
+        } catch (err: any) {
+            toast.error(err.response?.data?.error || 'Failed');
+        } finally { setProcessing(false); }
+    };
+
+    const handleAddUpi = async () => {
+        if (!newUpiId || !newUpiId.includes('@')) return toast.error('Enter a valid UPI ID');
+        try {
+            await axios.post('/api/admin/upi', { upiId: newUpiId, displayName: newUpiName || newUpiId });
+            toast.success('UPI account added');
+            setNewUpiId(''); setNewUpiName('');
+            fetchUpiAccounts();
+        } catch (err: any) { toast.error(err.response?.data?.error || 'Failed'); }
+    };
+
+    const handleToggleUpi = async (id: number, currentActive: boolean) => {
+        try {
+            await axios.patch('/api/admin/upi', { id, isActive: !currentActive });
+            toast.success(currentActive ? 'UPI deactivated' : 'UPI activated');
+            fetchUpiAccounts();
+        } catch { toast.error('Failed'); }
+    };
+
+    const handleDeleteUpi = async (id: number) => {
+        try {
+            await axios.delete(`/api/admin/upi?id=${id}`);
+            toast.success('UPI account deleted');
+            fetchUpiAccounts();
+        } catch { toast.error('Failed'); }
     };
 
     /* ── Tab config ───────────────────── */
@@ -192,6 +256,7 @@ export default function AdminPage() {
         { key: 'deposits', label: 'Deposits', icon: ArrowDownTrayIcon },
         { key: 'withdrawals', label: 'Withdrawals', icon: ArrowUpTrayIcon },
         { key: 'trading', label: 'Trading', icon: ChartBarIcon },
+        { key: 'upi', label: 'UPI', icon: BanknotesIcon },
         { key: 'support', label: 'Support', icon: TicketIcon },
         { key: 'settings', label: 'Settings', icon: AdjustmentsHorizontalIcon },
     ];
@@ -310,41 +375,130 @@ export default function AdminPage() {
             {/* ═══════════ DEPOSITS TAB ═══════════ */}
             {tab === 'deposits' && (
                 <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
-                    <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
-                        {['', 'pending', 'completed', 'rejected'].map((s) => (
-                            <button key={s} onClick={() => { setTxStatusFilter(s); setTxPage(1); fetchTransactions('deposit'); }}
-                                className={clsx(
-                                    'px-4 py-2 rounded-xl text-xs font-semibold whitespace-nowrap border transition-all capitalize',
-                                    txStatusFilter === s ? 'bg-neon-green/12 text-neon-green border-neon-green/20' : 'bg-glass text-text-secondary border-transparent'
-                                )}
-                            >
-                                {s || 'All'}
-                            </button>
-                        ))}
+                    {/* Stats Row */}
+                    {depositStats && (
+                        <div className="grid grid-cols-3 gap-2">
+                            <div className="inner-card text-center">
+                                <p className="text-lg font-extrabold text-warning">{depositStats.pending}</p>
+                                <p className="text-[10px] text-text-muted">Pending</p>
+                            </div>
+                            <div className="inner-card text-center">
+                                <p className="text-lg font-extrabold text-neon-green">{depositStats.approved}</p>
+                                <p className="text-[10px] text-text-muted">Approved</p>
+                            </div>
+                            <div className="inner-card text-center">
+                                <p className="text-lg font-extrabold text-neon-red">{depositStats.rejected}</p>
+                                <p className="text-[10px] text-text-muted">Rejected</p>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Filters */}
+                    <div className="flex flex-wrap gap-2">
+                        <div className="flex gap-1">
+                            {['pending', 'approved', 'rejected', 'all'].map((s) => (
+                                <button key={s} onClick={() => { setDepositStatusFilter(s); setDepositPage(1); }}
+                                    className={clsx('px-3 py-1.5 rounded-xl text-[11px] font-semibold whitespace-nowrap border transition-all capitalize',
+                                        depositStatusFilter === s ? 'bg-neon-green/12 text-neon-green border-neon-green/20' : 'bg-glass text-text-secondary border-transparent'
+                                    )}>{s}</button>
+                            ))}
+                        </div>
+                        <div className="flex gap-1">
+                            {['all', 'usdt', 'upi'].map((t) => (
+                                <button key={t} onClick={() => { setDepositTypeFilter(t); setDepositPage(1); }}
+                                    className={clsx('px-3 py-1.5 rounded-xl text-[11px] font-semibold whitespace-nowrap border transition-all uppercase',
+                                        depositTypeFilter === t ? 'bg-neon-cyan/12 text-neon-cyan border-neon-cyan/20' : 'bg-glass text-text-secondary border-transparent'
+                                    )}>{t}</button>
+                            ))}
+                        </div>
                     </div>
+
+                    {/* Deposit Request Cards */}
                     <div className="space-y-2">
-                        {transactions.map((tx) => (
-                            <div key={tx.id} className="inner-card">
-                                <div className="mb-1 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                        {depositRequests.map((dr) => (
+                            <div key={dr.id} className="inner-card">
+                                <div className="mb-2 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                                     <div className="flex min-w-0 items-center gap-2">
-                                        {statusIcon(tx.status)}
+                                        {dr.status === 'approved' ? <CheckCircleIcon className="w-4 h-4 text-neon-green shrink-0" /> :
+                                         dr.status === 'pending' ? <ClockIcon className="w-4 h-4 text-warning shrink-0" /> :
+                                         <XCircleIcon className="w-4 h-4 text-neon-red shrink-0" />}
                                         <div className="min-w-0">
-                                            <p className="truncate text-sm font-semibold">{tx.user_name || 'Unknown'}</p>
-                                            <p className="truncate text-[11px] text-text-muted">{tx.user_email}</p>
+                                            <p className="truncate text-sm font-semibold">{dr.user_name || 'Unknown'}</p>
+                                            <p className="truncate text-[11px] text-text-muted">{dr.user_email}</p>
                                         </div>
                                     </div>
-                                    <div className="text-left sm:text-right">
-                                        <p className="text-sm font-bold text-neon-green">+₹{parseFloat(tx.amount).toFixed(2)}</p>
-                                        <p className="text-[10px] text-text-muted">{dayjs(tx.created_at).format('MMM D, HH:mm')}</p>
+                                    <div className="text-left sm:text-right sm:shrink-0">
+                                        <p className="text-sm font-bold text-neon-green">₹{parseFloat(dr.amount).toFixed(2)}</p>
+                                        <span className={clsx('text-[10px] font-semibold px-2 py-0.5 rounded-full',
+                                            dr.deposit_type === 'usdt' ? 'bg-neon-cyan/15 text-neon-cyan' : 'bg-neon-green/15 text-neon-green'
+                                        )}>{dr.deposit_type?.toUpperCase()}</span>
                                     </div>
                                 </div>
-                                {tx.tx_hash && (
-                                    <p className="text-[10px] text-text-muted font-mono truncate mt-1">TxID: {tx.tx_hash}</p>
+
+                                {/* Details */}
+                                <div className="space-y-1 mb-2 overflow-hidden">
+                                    {dr.tx_hash && (
+                                        <div className="flex items-center gap-2 min-w-0">
+                                            <span className="text-[10px] text-text-muted shrink-0">Hash:</span>
+                                            <a href={`https://bscscan.com/tx/${dr.tx_hash}`} target="_blank" rel="noopener noreferrer"
+                                                className="text-[10px] font-mono text-neon-cyan truncate hover:underline flex-1 min-w-0">{dr.tx_hash}</a>
+                                        </div>
+                                    )}
+                                    {dr.utr_number && (
+                                        <p className="text-[10px] text-text-muted truncate">UTR: <span className="font-mono text-text-secondary">{dr.utr_number}</span></p>
+                                    )}
+                                    {dr.upi_id && (
+                                        <p className="text-[10px] text-text-muted truncate">UPI: <span className="font-mono text-text-secondary">{dr.upi_id}</span></p>
+                                    )}
+                                    {dr.wallet_address && (
+                                        <p className="text-[10px] text-text-muted font-mono truncate break-all">Wallet: {dr.wallet_address}</p>
+                                    )}
+                                    <p className="text-[10px] text-text-muted">{dayjs(dr.created_at).format('MMM D, YYYY HH:mm')}</p>
+                                </div>
+
+                                {/* Approve/Reject for pending */}
+                                {dr.status === 'pending' && (
+                                    <div className="space-y-2 pt-2 border-t border-glass-border">
+                                        <input type="text" placeholder="Admin note (optional)" value={depositActionNote}
+                                            onChange={(e) => setDepositActionNote(e.target.value)}
+                                            className="glass-input text-xs py-2" />
+                                        <div className="flex gap-2">
+                                            <button onClick={() => handleDepositAction(dr.id, 'approve')} disabled={processing}
+                                                className="flex-1 py-2 rounded-xl text-xs font-bold bg-neon-green/15 text-neon-green hover:bg-neon-green/25 transition-all">
+                                                {processing ? 'Processing...' : 'Approve & Credit'}
+                                            </button>
+                                            <button onClick={() => handleDepositAction(dr.id, 'reject')} disabled={processing}
+                                                className="flex-1 py-2 rounded-xl text-xs font-bold bg-neon-red/15 text-neon-red hover:bg-neon-red/25 transition-all">
+                                                Reject
+                                            </button>
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* Show review info for processed */}
+                                {dr.status !== 'pending' && dr.admin_name && (
+                                    <p className="text-[10px] text-text-muted mt-1">
+                                        {dr.status === 'approved' ? '✓' : '✕'} by {dr.admin_name}
+                                        {dr.admin_note && <span> — {dr.admin_note}</span>}
+                                    </p>
                                 )}
                             </div>
                         ))}
-                        {transactions.length === 0 && <p className="text-sm text-text-muted text-center py-8">No deposits found</p>}
+                        {depositRequests.length === 0 && <p className="text-sm text-text-muted text-center py-8">No deposit requests found</p>}
                     </div>
+
+                    {/* Pagination */}
+                    {depositTotalPages > 1 && (
+                        <div className="flex items-center justify-center gap-3">
+                            <button onClick={() => setDepositPage(p => Math.max(1, p - 1))} disabled={depositPage === 1} className="btn-ghost p-2 disabled:opacity-30">
+                                <ChevronLeftIcon className="w-4 h-4" />
+                            </button>
+                            <span className="text-xs text-text-muted">Page {depositPage} / {depositTotalPages}</span>
+                            <button onClick={() => setDepositPage(p => Math.min(depositTotalPages, p + 1))} disabled={depositPage >= depositTotalPages} className="btn-ghost p-2 disabled:opacity-30">
+                                <ChevronRightIcon className="w-4 h-4" />
+                            </button>
+                        </div>
+                    )}
                 </motion.div>
             )}
 
@@ -695,6 +849,67 @@ export default function AdminPage() {
                 </div>
             )}
 
+            {/* ═══════════ UPI MANAGEMENT TAB ═══════════ */}
+            {tab === 'upi' && (
+                <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
+                    {/* Add UPI */}
+                    <div className="glass-card">
+                        <h3 className="text-sm font-bold mb-4 flex items-center gap-2">
+                            <BanknotesIcon className="w-4 h-4 text-neon-green" /> Add UPI Account
+                        </h3>
+                        <div className="space-y-3">
+                            <div>
+                                <label className="form-label">UPI ID</label>
+                                <input type="text" value={newUpiId} onChange={(e) => setNewUpiId(e.target.value)}
+                                    placeholder="example@upi" className="glass-input text-sm" />
+                            </div>
+                            <div>
+                                <label className="form-label">Display Name (optional)</label>
+                                <input type="text" value={newUpiName} onChange={(e) => setNewUpiName(e.target.value)}
+                                    placeholder="Primary UPI" className="glass-input text-sm" />
+                            </div>
+                            <button onClick={handleAddUpi} className="btn-glow w-full text-sm">Add UPI Account</button>
+                        </div>
+                    </div>
+
+                    {/* UPI List */}
+                    <div className="glass-card">
+                        <h3 className="text-sm font-bold mb-4 flex items-center gap-2">
+                            <BanknotesIcon className="w-4 h-4 text-neon-cyan" /> Active UPI Accounts
+                            <button onClick={fetchUpiAccounts} className="ml-auto text-text-muted hover:text-neon-green transition-colors">
+                                <ArrowPathIcon className="w-4 h-4" />
+                            </button>
+                        </h3>
+                        <div className="space-y-2">
+                            {upiAccounts.map((acc) => (
+                                <div key={acc.id} className="inner-card flex flex-col sm:flex-row sm:items-center gap-3">
+                                    <div className="flex-1 min-w-0">
+                                        <p className="text-sm font-bold font-mono truncate">{acc.upi_id}</p>
+                                        <p className="text-[11px] text-text-muted">{acc.display_name}</p>
+                                    </div>
+                                    <div className="flex items-center gap-2 shrink-0">
+                                        <span className={clsx('text-[10px] font-semibold px-2 py-0.5 rounded-full',
+                                            acc.is_active ? 'bg-neon-green/15 text-neon-green' : 'bg-neon-red/15 text-neon-red'
+                                        )}>{acc.is_active ? 'Active' : 'Inactive'}</span>
+                                        <button onClick={() => handleToggleUpi(acc.id, !!acc.is_active)}
+                                            className={clsx('px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-all',
+                                                acc.is_active ? 'bg-neon-red/10 text-neon-red hover:bg-neon-red/20' : 'bg-neon-green/10 text-neon-green hover:bg-neon-green/20'
+                                            )}>
+                                            {acc.is_active ? 'Deactivate' : 'Activate'}
+                                        </button>
+                                        <button onClick={() => handleDeleteUpi(acc.id)}
+                                            className="px-3 py-1.5 rounded-lg text-[11px] font-semibold bg-neon-red/10 text-neon-red hover:bg-neon-red/20 transition-all">
+                                            Delete
+                                        </button>
+                                    </div>
+                                </div>
+                            ))}
+                            {upiAccounts.length === 0 && <p className="text-sm text-text-muted text-center py-6">No UPI accounts configured</p>}
+                        </div>
+                    </div>
+                </motion.div>
+            )}
+
             {/* ═══════════ SETTINGS TAB ═══════════ */}
             {tab === 'settings' && (
                 <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
@@ -703,16 +918,6 @@ export default function AdminPage() {
                             <BoltIcon className="w-4 h-4 text-neon-cyan" /> System Actions
                         </h3>
                         <div className="space-y-3">
-                            <button onClick={handleRunMonitor} className="w-full inner-card flex items-center justify-between hover:bg-glass-hover transition-all group">
-                                <div className="flex items-center gap-3">
-                                    <ArrowPathIcon className="w-5 h-5 text-neon-cyan" />
-                                    <div>
-                                        <p className="text-sm font-semibold">Run Blockchain Monitor</p>
-                                        <p className="text-[11px] text-text-muted">Check for new USDT deposits on BSC</p>
-                                    </div>
-                                </div>
-                                <span className="text-xs text-text-muted group-hover:text-neon-cyan">Run →</span>
-                            </button>
                             <button onClick={handleRunSalary} className="w-full inner-card flex items-center justify-between hover:bg-glass-hover transition-all group">
                                 <div className="flex items-center gap-3">
                                     <CurrencyDollarIcon className="w-5 h-5 text-neon-green" />

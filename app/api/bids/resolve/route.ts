@@ -1,15 +1,15 @@
 import { NextResponse } from 'next/server';
 import { query, queryOne } from '@/lib/db';
 import { processReferralBonus, processCommission } from '@/lib/commission';
-
-const MAX_RESULT_STREAK = 4;
+import {
+    determineSingleBetOutcome,
+    updateUserProfile,
+    logBetOutcome,
+    type OutcomeDecision,
+} from '@/lib/outcome-engine';
 
 type SettingRow = {
     setting_value: string;
-};
-
-type CountRow = {
-    count: number;
 };
 
 type BidRow = {
@@ -19,10 +19,6 @@ type BidRow = {
     direction: 'up' | 'down';
     amount: string | number;
     status: 'pending' | 'won' | 'lost';
-};
-
-type ResolvedBidStatusRow = {
-    status: 'won' | 'lost';
 };
 
 type RoundRow = {
@@ -48,66 +44,39 @@ async function setSetting(key: string, value: string): Promise<void> {
     } catch { }
 }
 
-// Check if a user qualifies for new-user bonus (won fewer than 3 bids total)
-async function getNewUserWinCount(userId: number): Promise<number> {
-    try {
-        const result = await queryOne<CountRow>(
-            'SELECT COUNT(*) as count FROM bids WHERE user_id = ? AND status = "won"',
-            [userId]
-        );
-        return result?.count || 0;
-    } catch { return 999; }
+// Helper: Process a single bid win
+async function processBidWin(bid: BidRow, roundId: number, decision: OutcomeDecision): Promise<void> {
+    const netAmount = Number(bid.amount);
+    const originalAmount = netAmount / (1 - 0.03);
+    const payout = Math.round((originalAmount + netAmount) * 100000000) / 100000000;
+
+    await query('UPDATE users SET wallet_balance = wallet_balance + ? WHERE id = ?', [payout, bid.user_id]);
+    await query('UPDATE bids SET status = "won", payout = ?, admin_override = ?, engine_reason = ? WHERE id = ?',
+        [payout, decision.source === 'admin_override' ? 'force_win' : 'system', decision.reason.substring(0, 255), bid.id]);
+
+    await query(
+        'INSERT INTO transactions (user_id, type, amount, status, notes) VALUES (?, "bid_win", ?, "completed", ?)',
+        [bid.user_id, payout, `Won bid on ${bid.coin_id} (Round #${roundId})`]
+    );
+
+    await updateUserProfile(bid.user_id, netAmount, true, payout);
+    await logBetOutcome(bid.id, bid.user_id, roundId, netAmount, 'win', decision);
 }
 
-async function getUserResultStreak(userId: number): Promise<{ status: 'won' | 'lost' | null; count: number }> {
-    try {
-        const recentBids = await query<ResolvedBidStatusRow[]>(
-            'SELECT status FROM bids WHERE user_id = ? AND status IN ("won", "lost") ORDER BY id DESC LIMIT ?',
-            [userId, MAX_RESULT_STREAK]
-        );
+// Helper: Process a single bid loss
+async function processBidLoss(bid: BidRow, roundId: number, decision: OutcomeDecision): Promise<void> {
+    const netAmount = Number(bid.amount);
 
-        if (!recentBids || recentBids.length === 0) {
-            return { status: null, count: 0 };
-        }
+    await query('UPDATE bids SET status = "lost", admin_override = ?, engine_reason = ? WHERE id = ?',
+        [decision.source === 'admin_override' ? 'force_loss' : 'system', decision.reason.substring(0, 255), bid.id]);
 
-        const firstStatus = recentBids[0].status;
-        let count = 0;
-
-        for (const bid of recentBids) {
-            if (bid.status !== firstStatus) {
-                break;
-            }
-            count++;
-        }
-
-        return { status: firstStatus, count };
-    } catch {
-        return { status: null, count: 0 };
-    }
-}
-
-async function shouldBidWin(userId: number, baseOutcome: 'won' | 'lost'): Promise<boolean> {
-    const streak = await getUserResultStreak(userId);
-
-    if (streak.count >= MAX_RESULT_STREAK) {
-        return streak.status === 'lost';
-    }
-
-    if (baseOutcome === 'won') {
-        return true;
-    }
-
-    if (baseOutcome === 'lost') {
-        return Math.random() >= 0.5;
-    }
-
-    return Math.random() >= 0.5;
+    await updateUserProfile(bid.user_id, netAmount, false, 0);
+    await logBetOutcome(bid.id, bid.user_id, roundId, netAmount, 'loss', decision);
 }
 
 // Resolve expired rounds - called periodically or via cron
 // WIN LOGIC: payout = originalAmount + netAmount (e.g. bet 100, fee 3, net 97, win = 100+97 = 197)
-// Single bet (one side only): new users under 500 get an onboarding boost for 3 wins,
-// then outcomes become random, while result streaks are capped at 4 in a row.
+// Single bet: Uses Smart Outcome Engine for risk-managed results
 // Multi-bet: 1) Admin manual  2) Consecutive  3) Equal=random  4) Minority wins
 export async function POST() {
     try {
@@ -139,37 +108,21 @@ export async function POST() {
                 continue;
             }
 
-            // If only one side has bids → single bet logic
-            // New user (< 3 wins, amount < 500) = WIN
-            // New user (>= 3 wins) = random outcome with a max 4-result streak cap
-            // Non-new users = WIN unless the streak cap forces a loss
+            // ═══════ SINGLE BET (one side only) → Smart Outcome Engine ═══════
             if (totalUp === 0 || totalDown === 0) {
                 const bids = await query<BidRow[]>('SELECT * FROM bids WHERE round_id = ? AND status = "pending"', [round.id]);
                 const winningSideForSingle = totalUp > 0 ? 'up' : 'down';
+
                 for (const bid of bids) {
                     const netAmount = Number(bid.amount);
-                    const originalAmount = netAmount / (1 - 0.03);
 
-                    const winCount = await getNewUserWinCount(bid.user_id);
-                    const isNewUser = originalAmount < 500;
-                    const baseOutcome: 'won' | 'lost' = isNewUser
-                        ? (winCount < 3 ? 'won' : 'lost')
-                        : 'won';
-                    const bidWon = await shouldBidWin(bid.user_id, baseOutcome);
+                    // Use Smart Outcome Engine for each bid
+                    const decision = await determineSingleBetOutcome(bid.id, bid.user_id, netAmount);
 
-                    if (!bidWon) {
-                        await query('UPDATE bids SET status = "lost" WHERE id = ?', [bid.id]);
+                    if (decision.shouldWin) {
+                        await processBidWin(bid, round.id, decision);
                     } else {
-                        // WIN: payout = originalAmount + netAmount
-                        const payout = Math.round((originalAmount + netAmount) * 100000000) / 100000000;
-
-                        await query('UPDATE users SET wallet_balance = wallet_balance + ? WHERE id = ?', [payout, bid.user_id]);
-                        await query('UPDATE bids SET status = "won", payout = ? WHERE id = ?', [payout, bid.id]);
-
-                        await query(
-                            'INSERT INTO transactions (user_id, type, amount, status, notes) VALUES (?, "bid_win", ?, "completed", ?)',
-                            [bid.user_id, payout, `Won bid on ${bid.coin_id} (Round #${round.id})`]
-                        );
+                        await processBidLoss(bid, round.id, decision);
                     }
 
                     // Process referral bonus + commission
@@ -181,18 +134,12 @@ export async function POST() {
                 continue;
             }
 
-            // Get all bids for this round
+            // ═══════ MULTI-BET → Determine round winner ═══════
             const allBids = await query<BidRow[]>('SELECT * FROM bids WHERE round_id = ? AND status = "pending"', [round.id]);
-
-            // ═══════ STEP 1: Multi-bet → go by normal logic (no new user rigging) ═══════
-
-            // ═══════ STEP 2: Determine round winner ═══════
             let winningSide: 'up' | 'down';
 
             if (tradeMode === 'manual' && (manualWinner === 'up' || manualWinner === 'down')) {
-                // Admin manual override
                 winningSide = manualWinner as 'up' | 'down';
-                // Clear manual winner after use (one-shot)
                 await setSetting('manual_winner', '');
             } else if (consecutiveUp > 0) {
                 winningSide = 'up';
@@ -203,37 +150,33 @@ export async function POST() {
                 consecutiveDown--;
                 await setSetting('consecutive_down_wins', String(consecutiveDown));
             } else if (totalUp === totalDown) {
-                // Equal amounts → random winner
                 winningSide = Math.random() < 0.5 ? 'up' : 'down';
             } else {
-                // Default: minority side wins (lower total amount)
+                // Default: minority side wins (lower total = platform pays less)
                 winningSide = totalUp > totalDown ? 'down' : 'up';
             }
 
-            // ═══════ STEP 3: Process bids (normal logic, no rigging for multi-bet) ═══════
+            // ═══════ Process multi-bet results ═══════
             for (const bid of allBids) {
                 const bidWon = bid.direction === winningSide;
+                const netAmount = Number(bid.amount);
+
+                const decision: OutcomeDecision = {
+                    shouldWin: bidWon,
+                    source: 'multi_bet' as any,
+                    reason: `Multi-bet round: winningSide=${winningSide}, direction=${bid.direction}`,
+                    riskScore: 0,
+                    platformExposure: 0,
+                };
 
                 if (bidWon) {
-                    // WIN PAYOUT = originalAmount + netAmount
-                    const netAmount = Number(bid.amount);
-                    const originalAmount = netAmount / (1 - 0.03);
-                    const payout = Math.round((originalAmount + netAmount) * 100000000) / 100000000;
-
-                    await query('UPDATE bids SET status = "won", payout = ? WHERE id = ?', [payout, bid.id]);
-                    await query('UPDATE users SET wallet_balance = wallet_balance + ? WHERE id = ?', [payout, bid.user_id]);
-
-                    await query(
-                        'INSERT INTO transactions (user_id, type, amount, status, notes) VALUES (?, "bid_win", ?, "completed", ?)',
-                        [bid.user_id, payout, `Won bid on ${bid.coin_id} (Round #${round.id})`]
-                    );
+                    await processBidWin(bid, round.id, decision);
                 } else {
-                    await query('UPDATE bids SET status = "lost" WHERE id = ?', [bid.id]);
+                    await processBidLoss(bid, round.id, decision);
                 }
 
-                // Process referral bonus + commission for ALL bids (win or lose)
-                await processReferralBonus(bid.user_id, Number(bid.amount));
-                await processCommission(bid.user_id, Number(bid.amount));
+                await processReferralBonus(bid.user_id, netAmount);
+                await processCommission(bid.user_id, netAmount);
             }
 
             await query('UPDATE bid_rounds SET status = "resolved", winning_side = ? WHERE id = ?', [winningSide, round.id]);

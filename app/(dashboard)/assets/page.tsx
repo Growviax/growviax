@@ -15,13 +15,6 @@ import {
 import clsx from 'clsx';
 import dayjs from 'dayjs';
 
-const WALLETS = [
-    { qr: '/img/qr1.jpeg', address: '0xEE6edC5cb5C07D7A1Eb2ec5EB953d640fE046152' },
-    { qr: '/img/qr2.jpeg', address: '0x3cC8B270a33997a95AdB4511A701dD159734D433' },
-    { qr: '/img/qr3.jpeg', address: '0xEb22c11a8f4A9028f7103CC303b43C4B0e35D476' },
-    { qr: '/img/qr4.jpeg', address: '0x1a7d0e91aaCe0256Baf375C18c333165a49851a8' },
-    { qr: '/img/qr5.jpeg', address: '0xED7D925FAab46C08fbbaba6AFbC382C6533c403a' },
-];
 const MIN_AMOUNT = 1000; // ₹1,000 minimum
 const ITEMS_PER_PAGE = 10;
 
@@ -40,16 +33,6 @@ type WalletTransaction = {
     tx_hash?: string | null;
     notes?: string | null;
     created_at: string;
-};
-
-type DepositRequest = {
-    id: number;
-    wallet_address: string;
-    qr?: string;
-    status: 'pending' | 'completed' | 'expired';
-    matched_tx_hash?: string | null;
-    created_at?: string;
-    expires_at?: string | null;
 };
 
 const getApiErrorMessage = (error: unknown, fallback: string) => (
@@ -74,12 +57,17 @@ function AssetsContent() {
     const [withdrawSuccess, setWithdrawSuccess] = useState(false);
     const qrInputRef = useRef<HTMLInputElement>(null);
 
-    /* Deposit generate state */
-    const [depositGenerated, setDepositGenerated] = useState(false);
-    const [selectedWallet, setSelectedWallet] = useState(WALLETS[0]);
-    const [depositGenerating, setDepositGenerating] = useState(false);
-    const [depositRequest, setDepositRequest] = useState<DepositRequest | null>(null);
-    const completedDepositRef = useRef<string | null>(null);
+    /* Deposit state — new manual verification system */
+    const [depositMethod, setDepositMethod] = useState<'usdt' | 'upi'>('usdt');
+    const [depositStep, setDepositStep] = useState<'choose' | 'usdt_qr' | 'usdt_hash' | 'upi_pay' | 'upi_utr' | 'submitted'>('choose');
+    const [selectedWallet, setSelectedWallet] = useState<{ qr: string; address: string } | null>(null);
+    const [walletsList, setWalletsList] = useState<{ qr: string; address: string }[]>([]);
+    const [depositLoading, setDepositLoading] = useState(false);
+    const [txHashInput, setTxHashInput] = useState('');
+    const [depositAmountInput, setDepositAmountInput] = useState('');
+    const [assignedUpi, setAssignedUpi] = useState<{ upiId: string; displayName: string } | null>(null);
+    const [utrInput, setUtrInput] = useState('');
+    const [upiAmountInput, setUpiAmountInput] = useState('');
 
     /* History state */
     const [historyTab, setHistoryTab] = useState<'deposit' | 'withdrawal'>('deposit');
@@ -101,75 +89,89 @@ function AssetsContent() {
 
     useEffect(() => { fetchData(); }, [fetchData]);
 
-    const syncDepositStatus = useCallback(async () => {
-        try {
-            const res = await axios.get('/api/wallet/deposit/status');
-            const request = res.data.depositRequest;
-            const latestDeposit = res.data.latestDeposit;
-
-            setDepositRequest(request || null);
-
-            if (request?.wallet_address) {
-                const matched = WALLETS.find((w) => w.address.toLowerCase() === request.wallet_address.toLowerCase());
-                setSelectedWallet(matched || { address: request.wallet_address, qr: request.qr || '/img/qr1.jpeg' });
-                setDepositGenerated(request.status === 'pending' || request.status === 'completed');
-            } else {
-                setDepositGenerated(false);
-            }
-
-            const matchedHash = request?.matched_tx_hash || latestDeposit?.tx_hash || null;
-            if (request?.status === 'completed' && matchedHash && completedDepositRef.current !== matchedHash) {
-                completedDepositRef.current = matchedHash;
-                toast.success('Deposit verified and wallet credited automatically');
-                fetchData();
-            }
-        } catch {}
-    }, [fetchData]);
-
-    useEffect(() => {
-        syncDepositStatus();
-    }, [syncDepositStatus]);
-
-    useEffect(() => {
-        if (tab !== 'deposit' || depositRequest?.status !== 'pending') {
-            return;
-        }
-
-        const interval = window.setInterval(() => {
-            syncDepositStatus();
-        }, 20000);
-
-        return () => window.clearInterval(interval);
-    }, [tab, depositRequest?.status, syncDepositStatus]);
-
-    /* ── Copy deposit address ──────────────────────── */
-    const copyAddress = () => {
-        navigator.clipboard.writeText(selectedWallet.address);
-        toast.success('Address copied successfully');
+    /* ── Copy text to clipboard ──────────────────────── */
+    const copyText = (text: string, label: string) => {
+        navigator.clipboard.writeText(text);
+        toast.success(`${label} copied`);
     };
 
-    /* ── Generate Deposit Info (server-side) ───────── */
-    const handleGenerateDeposit = async () => {
-        setDepositGenerating(true);
+    /* ── USDT: Load wallet info ───────────────────── */
+    const handleStartUSDT = async () => {
+        setDepositLoading(true);
         try {
-            const res = await axios.post('/api/wallet/deposit');
-            const { wallet_address, qr, request_id } = res.data;
-            // Find matching local wallet or build one
-            const matched = WALLETS.find((w) => w.address.toLowerCase() === wallet_address.toLowerCase());
-            setSelectedWallet(matched || { address: wallet_address, qr: qr || '/img/qr1.jpeg' });
-            setDepositGenerated(true);
-            setDepositRequest({
-                id: request_id,
-                wallet_address,
-                qr: qr || '/img/qr1.jpeg',
-                status: 'pending',
-            });
-            syncDepositStatus();
+            const res = await axios.get('/api/wallet/deposit');
+            const { wallet, wallets } = res.data;
+            setSelectedWallet(wallet);
+            setWalletsList(wallets || []);
+            setDepositStep('usdt_qr');
         } catch (error: unknown) {
-            toast.error(getApiErrorMessage(error, 'Failed to generate deposit info'));
-        } finally {
-            setDepositGenerating(false);
-        }
+            toast.error(getApiErrorMessage(error, 'Failed to load wallet info'));
+        } finally { setDepositLoading(false); }
+    };
+
+    /* ── USDT: Submit transaction hash ────────────── */
+    const handleSubmitUSDTHash = async () => {
+        if (!txHashInput.trim()) return toast.error('Enter the transaction hash');
+        if (!depositAmountInput || parseFloat(depositAmountInput) <= 0) return toast.error('Enter the deposit amount');
+        if (!selectedWallet) return toast.error('No wallet selected');
+
+        setDepositLoading(true);
+        try {
+            await axios.post('/api/wallet/deposit/submit', {
+                txHash: txHashInput.trim(),
+                walletAddress: selectedWallet.address,
+                amount: parseFloat(depositAmountInput),
+            });
+            setDepositStep('submitted');
+            toast.success('Deposit request submitted!');
+            fetchData();
+        } catch (error: unknown) {
+            toast.error(getApiErrorMessage(error, 'Failed to submit deposit'));
+        } finally { setDepositLoading(false); }
+    };
+
+    /* ── UPI: Get random UPI ID ───────────────────── */
+    const handleStartUPI = async () => {
+        setDepositLoading(true);
+        try {
+            const res = await axios.get('/api/wallet/deposit/get-upi');
+            setAssignedUpi({ upiId: res.data.upiId, displayName: res.data.displayName });
+            setDepositStep('upi_pay');
+        } catch (error: unknown) {
+            toast.error(getApiErrorMessage(error, 'No active UPI accounts. Try USDT.'));
+        } finally { setDepositLoading(false); }
+    };
+
+    /* ── UPI: Submit UTR ──────────────────────────── */
+    const handleSubmitUPIUTR = async () => {
+        if (!utrInput.trim()) return toast.error('Enter the UTR number');
+        if (!upiAmountInput || parseFloat(upiAmountInput) < 500) return toast.error('Minimum UPI deposit is ₹500');
+        if (!assignedUpi) return toast.error('No UPI assigned');
+
+        setDepositLoading(true);
+        try {
+            await axios.post('/api/wallet/deposit/submit-upi', {
+                utrNumber: utrInput.trim(),
+                upiId: assignedUpi.upiId,
+                amount: parseFloat(upiAmountInput),
+            });
+            setDepositStep('submitted');
+            toast.success('UPI deposit request submitted!');
+            fetchData();
+        } catch (error: unknown) {
+            toast.error(getApiErrorMessage(error, 'Failed to submit UPI deposit'));
+        } finally { setDepositLoading(false); }
+    };
+
+    /* ── Reset deposit flow ───────────────────────── */
+    const resetDeposit = () => {
+        setDepositStep('choose');
+        setSelectedWallet(null);
+        setTxHashInput('');
+        setDepositAmountInput('');
+        setAssignedUpi(null);
+        setUtrInput('');
+        setUpiAmountInput('');
     };
 
 
@@ -313,141 +315,215 @@ function AssetsContent() {
             {/* ═══════════ DEPOSIT TAB ═══════════ */}
             {tab === 'deposit' && (
                 <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="space-y-5">
-                    <div className="glass-card flex flex-col items-center">
-                        {/* Title */}
-                        <div className="flex items-center gap-2 mb-5">
-                            <ArrowDownTrayIcon className="w-5 h-5 text-neon-cyan" />
-                            <p className="text-sm text-text-secondary font-semibold">Deposit USDT (BEP20)</p>
-                        </div>
+                    <AnimatePresence mode="wait">
+                        {/* ── Step: Choose Method ── */}
+                        {depositStep === 'choose' && (
+                            <motion.div key="choose" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-4">
+                                <div className="glass-card text-center">
+                                    <ArrowDownTrayIcon className="w-10 h-10 text-neon-cyan mx-auto mb-3" />
+                                    <h3 className="text-base font-bold mb-1">Deposit Funds</h3>
+                                    <p className="text-xs text-text-muted">Choose your deposit method</p>
+                                </div>
+                                <div className="grid grid-cols-2 gap-3">
+                                    <button onClick={() => { setDepositMethod('usdt'); handleStartUSDT(); }} disabled={depositLoading}
+                                        className="glass-card flex flex-col items-center gap-3 py-6 hover:border-neon-cyan/30 transition-all">
+                                        <div className="w-14 h-14 rounded-2xl bg-neon-cyan/10 flex items-center justify-center">
+                                            <WalletIcon className="w-7 h-7 text-neon-cyan" />
+                                        </div>
+                                        <div className="text-center">
+                                            <p className="text-sm font-bold">USDT</p>
+                                            <p className="text-[10px] text-text-muted">BEP20 (BSC)</p>
+                                        </div>
+                                    </button>
+                                    <button onClick={() => { setDepositMethod('upi'); handleStartUPI(); }} disabled={depositLoading}
+                                        className="glass-card flex flex-col items-center gap-3 py-6 hover:border-neon-green/30 transition-all">
+                                        <div className="w-14 h-14 rounded-2xl bg-neon-green/10 flex items-center justify-center">
+                                            <BanknotesIcon className="w-7 h-7 text-neon-green" />
+                                        </div>
+                                        <div className="text-center">
+                                            <p className="text-sm font-bold">UPI</p>
+                                            <p className="text-[10px] text-text-muted">INR Transfer</p>
+                                        </div>
+                                    </button>
+                                </div>
+                                {depositLoading && (
+                                    <div className="flex items-center justify-center gap-2 py-4">
+                                        <ArrowPathIcon className="w-5 h-5 text-neon-cyan animate-spin" />
+                                        <span className="text-sm text-text-muted">Loading...</span>
+                                    </div>
+                                )}
+                            </motion.div>
+                        )}
 
-                        <AnimatePresence mode="wait">
-                            {!depositGenerated ? (
-                                <motion.div
-                                    key="generate"
-                                    initial={{ opacity: 0, y: 10 }}
-                                    animate={{ opacity: 1, y: 0 }}
-                                    exit={{ opacity: 0, y: -10 }}
-                                    className="w-full flex flex-col items-center py-8"
-                                >
-                                    {depositGenerating ? (
-                                        /* Generating animation */
-                                        <div className="flex flex-col items-center gap-4">
-                                            <div className="relative w-24 h-24">
-                                                <div className="absolute inset-0 rounded-2xl border-4 border-neon-cyan/20 animate-pulse" />
-                                                <div className="absolute inset-2 rounded-xl border-2 border-dashed border-neon-cyan/40 animate-spin" style={{ animationDuration: '3s' }} />
-                                                <div className="absolute inset-0 flex items-center justify-center">
-                                                    <ArrowPathIcon className="w-8 h-8 text-neon-cyan animate-spin" />
-                                                </div>
-                                            </div>
-                                            <div className="text-center">
-                                                <p className="text-sm font-semibold text-text-primary">Generating Deposit Info...</p>
-                                                <p className="text-[11px] text-text-muted mt-1">Preparing your QR code and wallet address</p>
-                                            </div>
-                                            <div className="flex items-center gap-1.5">
-                                                {[0, 1, 2].map((i) => (
-                                                    <motion.div
-                                                        key={i}
-                                                        className="w-2 h-2 rounded-full bg-neon-cyan"
-                                                        animate={{ opacity: [0.3, 1, 0.3], scale: [0.8, 1.2, 0.8] }}
-                                                        transition={{ duration: 1, repeat: Infinity, delay: i * 0.3 }}
-                                                    />
-                                                ))}
-                                            </div>
-                                        </div>
-                                    ) : (
-                                        /* Generate button */
-                                        <div className="flex flex-col items-center gap-5">
-                                            <div className="w-28 h-28 rounded-3xl bg-glass border-2 border-dashed border-glass-border flex items-center justify-center">
-                                                <ArrowDownTrayIcon className="w-12 h-12 text-text-muted" />
-                                            </div>
-                                            <div className="text-center">
-                                                <p className="text-sm font-semibold text-text-primary mb-1">Ready to Deposit?</p>
-                                                <p className="text-[11px] text-text-muted">Click below to generate your unique deposit QR code and wallet address</p>
-                                            </div>
-                                            <button
-                                                onClick={handleGenerateDeposit}
-                                                disabled={depositGenerating}
-                                                className="btn-glow px-10 py-3.5 text-sm font-bold flex items-center gap-2"
-                                            >
-                                                <BoltIcon className="w-4 h-4" />
-                                                Generate Deposit Info
-                                            </button>
-                                        </div>
-                                    )}
-                                </motion.div>
-                            ) : (
-                                <motion.div
-                                    key="info"
-                                    initial={{ opacity: 0, y: 10, scale: 0.95 }}
-                                    animate={{ opacity: 1, y: 0, scale: 1 }}
-                                    className="w-full flex flex-col items-center overflow-hidden"
-                                >
-                                    {/* QR Code Card */}
-                                    <div className="relative p-5 bg-white rounded-2xl mb-5 shadow-[0_8px_40px_rgba(0,0,0,0.5)]">
-                                        <Image
-                                            src={selectedWallet.qr}
-                                            alt="Deposit QR Code – USDT BEP20"
-                                            width={200}
-                                            height={200}
-                                            className="rounded-xl"
-                                            priority
-                                        />
+                        {/* ── Step: USDT QR + Address ── */}
+                        {depositStep === 'usdt_qr' && selectedWallet && (
+                            <motion.div key="usdt_qr" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-4">
+                                <div className="glass-card flex flex-col items-center overflow-hidden">
+                                    <div className="flex items-center gap-2 mb-4 w-full">
+                                        <button onClick={resetDeposit} className="btn-ghost p-2 text-xs">Back</button>
+                                        <p className="text-sm font-bold flex-1 text-center">Deposit USDT (BEP20)</p>
+                                        <span className="badge-info text-[10px]">BEP20</span>
                                     </div>
 
-                                    {/* Network Badge */}
-                                    <div className="flex items-center gap-2 mb-5">
-                                        <span className="badge-info">Network: BEP20 (BSC)</span>
+                                    {/* QR Code */}
+                                    <div className="relative p-4 bg-white rounded-2xl mb-4 shadow-[0_8px_40px_rgba(0,0,0,0.5)] max-w-[220px] mx-auto">
+                                        <Image src={selectedWallet.qr} alt="USDT QR" width={180} height={180} className="rounded-xl w-full h-auto" priority />
                                     </div>
 
-                                    {/* Wallet Address */}
+                                    {/* Address */}
                                     <div className="w-full glass-card-flat">
                                         <p className="text-[11px] text-text-muted uppercase tracking-wider font-medium mb-2">Wallet Address</p>
                                         <div className="flex items-center gap-2">
-                                            <div className="flex-1 inner-card px-3 py-2.5 overflow-hidden">
-                                                <code className="text-xs font-mono text-text-secondary block truncate select-all">
-                                                    {selectedWallet.address}
-                                                </code>
+                                            <div className="flex-1 inner-card px-3 py-2.5 overflow-hidden min-w-0">
+                                                <code className="text-[11px] font-mono text-text-secondary block truncate select-all">{selectedWallet.address}</code>
                                             </div>
-                                            <button
-                                                onClick={copyAddress}
-                                                className="btn-ghost p-3 shrink-0 hover:bg-neon-green/10 hover:text-neon-green transition-all"
-                                                title="Copy address"
-                                            >
-                                                <ClipboardDocumentIcon className="w-5 h-5" />
+                                            <button onClick={() => copyText(selectedWallet.address, 'Address')} className="btn-ghost p-2.5 shrink-0 hover:bg-neon-green/10 hover:text-neon-green">
+                                                <ClipboardDocumentIcon className="w-4 h-4" />
                                             </button>
                                         </div>
                                     </div>
 
                                     {/* Warning */}
-                                    <div className="w-full mt-4 p-4 rounded-2xl border border-neon-orange/20 bg-neon-orange/5">
-                                        <div className="flex items-start gap-3">
-                                            <ExclamationTriangleIcon className="w-5 h-5 text-neon-orange shrink-0 mt-0.5" />
-                                            <div>
-                                                <p className="text-xs font-bold text-neon-orange mb-1">Important Warning</p>
-                                                <p className="text-[11px] text-text-secondary leading-relaxed">
-                                                    Send only <span className="text-neon-orange font-semibold">USDT (BEP20)</span> to this address.
-                                                    Sending any other asset may result in <span className="text-neon-red font-semibold">permanent loss</span>.
-                                                </p>
-                                            </div>
+                                    <div className="w-full mt-4 p-3 rounded-xl border border-neon-orange/20 bg-neon-orange/5">
+                                        <div className="flex items-start gap-2">
+                                            <ExclamationTriangleIcon className="w-4 h-4 text-neon-orange shrink-0 mt-0.5" />
+                                            <p className="text-[11px] text-text-secondary leading-relaxed">
+                                                Send only <span className="text-neon-orange font-semibold">USDT (BEP20)</span> to this address. Other assets will be <span className="text-neon-red font-semibold">permanently lost</span>.
+                                            </p>
                                         </div>
                                     </div>
 
-                                    {/* Deposit Instructions */}
-                                    <div className="w-full mt-5 p-4 rounded-2xl border border-warning/20 bg-warning/5">
-                                        <h3 className="text-sm font-bold text-warning mb-3">Deposit Instructions</h3>
-                                        <ul className="space-y-2 text-[12px] text-text-secondary">
-                                            <li className="flex items-start gap-2"><span className="text-warning">•</span> Deposit timing is <span className="text-warning font-semibold">24/7</span>.</li>
-                                            <li className="flex items-start gap-2"><span className="text-warning">•</span> The minimum deposit amount is <span className="text-warning font-semibold">₹1,000</span> (≈$10 USDT).</li>
-                                            <li className="flex items-start gap-2"><span className="text-warning">•</span> Send only <span className="text-neon-orange font-semibold">USDT (BEP20)</span> to the address above.</li>
-                                            <li className="flex items-start gap-2"><span className="text-warning">•</span> Deposits are credited after <span className="text-warning font-semibold">network confirmation</span>.</li>
-                                            <li className="flex items-start gap-2"><span className="text-warning">•</span> If you have any issues, please contact our <span className="text-warning font-semibold">support team</span>.</li>
+                                    <button onClick={() => setDepositStep('usdt_hash')} className="btn-glow w-full mt-5 text-sm flex items-center justify-center gap-2">
+                                        <BoltIcon className="w-4 h-4" /> I&apos;ve Sent USDT — Submit Hash
+                                    </button>
+                                </div>
+                            </motion.div>
+                        )}
+
+                        {/* ── Step: USDT Hash Submission ── */}
+                        {depositStep === 'usdt_hash' && selectedWallet && (
+                            <motion.div key="usdt_hash" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-4">
+                                <div className="glass-card">
+                                    <div className="flex items-center gap-2 mb-5">
+                                        <button onClick={() => setDepositStep('usdt_qr')} className="btn-ghost p-2 text-xs">Back</button>
+                                        <p className="text-sm font-bold flex-1 text-center">Submit Transaction Hash</p>
+                                    </div>
+
+                                    <div className="space-y-4">
+                                        <div>
+                                            <label className="form-label">Deposit Amount (INR)</label>
+                                            <input type="number" value={depositAmountInput} onChange={(e) => setDepositAmountInput(e.target.value)}
+                                                placeholder="e.g. 5000" className="glass-input text-sm" min="1" step="0.01" />
+                                            <p className="text-[10px] text-text-muted mt-1">Enter the INR equivalent of USDT sent</p>
+                                        </div>
+                                        <div>
+                                            <label className="form-label">Transaction Hash (BSCScan)</label>
+                                            <input type="text" value={txHashInput} onChange={(e) => setTxHashInput(e.target.value)}
+                                                placeholder="0x..." className="glass-input text-sm font-mono" />
+                                            <p className="text-[10px] text-text-muted mt-1">Find this on BSCScan after your transaction confirms</p>
+                                        </div>
+                                        <div className="inner-card">
+                                            <p className="text-[11px] text-text-muted mb-1">Sent to wallet:</p>
+                                            <code className="text-[10px] font-mono text-text-secondary block truncate">{selectedWallet.address}</code>
+                                        </div>
+                                        <button onClick={handleSubmitUSDTHash} disabled={depositLoading}
+                                            className="btn-glow w-full text-sm flex items-center justify-center gap-2">
+                                            {depositLoading ? <><ArrowPathIcon className="w-4 h-4 animate-spin" /> Submitting...</> : 'Submit Deposit Request'}
+                                        </button>
+                                    </div>
+                                </div>
+                            </motion.div>
+                        )}
+
+                        {/* ── Step: UPI Payment Info ── */}
+                        {depositStep === 'upi_pay' && assignedUpi && (
+                            <motion.div key="upi_pay" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-4">
+                                <div className="glass-card">
+                                    <div className="flex items-center gap-2 mb-5">
+                                        <button onClick={resetDeposit} className="btn-ghost p-2 text-xs">Back</button>
+                                        <p className="text-sm font-bold flex-1 text-center">UPI Deposit</p>
+                                        <span className="badge-success text-[10px]">UPI</span>
+                                    </div>
+
+                                    <div className="inner-card mb-4 text-center">
+                                        <p className="text-[11px] text-text-muted mb-2">Send payment to this UPI ID</p>
+                                        <p className="text-lg font-bold text-neon-green font-mono">{assignedUpi.upiId}</p>
+                                        <p className="text-[11px] text-text-muted mt-1">{assignedUpi.displayName}</p>
+                                        <button onClick={() => copyText(assignedUpi.upiId, 'UPI ID')}
+                                            className="btn-ghost mt-3 text-xs flex items-center gap-1.5 mx-auto">
+                                            <ClipboardDocumentIcon className="w-3.5 h-3.5" /> Copy UPI ID
+                                        </button>
+                                    </div>
+
+                                    <div className="p-3 rounded-xl border border-warning/20 bg-warning/5 mb-4">
+                                        <ul className="space-y-1.5 text-[11px] text-text-secondary">
+                                            <li className="flex items-start gap-2"><span className="text-warning">1.</span> Open any UPI app (GPay, PhonePe, Paytm)</li>
+                                            <li className="flex items-start gap-2"><span className="text-warning">2.</span> Send payment to the UPI ID above</li>
+                                            <li className="flex items-start gap-2"><span className="text-warning">3.</span> Note down the <span className="text-warning font-semibold">12-digit UTR number</span></li>
+                                            <li className="flex items-start gap-2"><span className="text-warning">4.</span> Click below to submit your UTR</li>
                                         </ul>
                                     </div>
 
-                                </motion.div>
-                            )}
-                        </AnimatePresence>
-                    </div>
+                                    <button onClick={() => setDepositStep('upi_utr')} className="btn-glow w-full text-sm flex items-center justify-center gap-2">
+                                        <BoltIcon className="w-4 h-4" /> I&apos;ve Paid — Submit UTR
+                                    </button>
+                                </div>
+                            </motion.div>
+                        )}
+
+                        {/* ── Step: UPI UTR Submission ── */}
+                        {depositStep === 'upi_utr' && assignedUpi && (
+                            <motion.div key="upi_utr" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-4">
+                                <div className="glass-card">
+                                    <div className="flex items-center gap-2 mb-5">
+                                        <button onClick={() => setDepositStep('upi_pay')} className="btn-ghost p-2 text-xs">Back</button>
+                                        <p className="text-sm font-bold flex-1 text-center">Submit UTR Number</p>
+                                    </div>
+
+                                    <div className="space-y-4">
+                                        <div>
+                                            <label className="form-label">Amount Paid (INR)</label>
+                                            <input type="number" value={upiAmountInput} onChange={(e) => setUpiAmountInput(e.target.value)}
+                                                placeholder="e.g. 5000" className="glass-input text-sm" min="500" />
+                                            <p className="text-[10px] text-text-muted mt-1">Minimum ₹500</p>
+                                        </div>
+                                        <div>
+                                            <label className="form-label">UTR Number (12 digits)</label>
+                                            <input type="text" value={utrInput} onChange={(e) => setUtrInput(e.target.value.replace(/\D/g, '').slice(0, 12))}
+                                                placeholder="123456789012" className="glass-input text-sm font-mono" maxLength={12} />
+                                            <p className="text-[10px] text-text-muted mt-1">Find this in your UPI app transaction details</p>
+                                        </div>
+                                        <div className="inner-card">
+                                            <p className="text-[11px] text-text-muted mb-1">Paid to UPI:</p>
+                                            <code className="text-xs font-mono text-neon-green">{assignedUpi.upiId}</code>
+                                        </div>
+                                        <button onClick={handleSubmitUPIUTR} disabled={depositLoading}
+                                            className="btn-glow w-full text-sm flex items-center justify-center gap-2">
+                                            {depositLoading ? <><ArrowPathIcon className="w-4 h-4 animate-spin" /> Submitting...</> : 'Submit UPI Deposit'}
+                                        </button>
+                                    </div>
+                                </div>
+                            </motion.div>
+                        )}
+
+                        {/* ── Step: Submitted Success ── */}
+                        {depositStep === 'submitted' && (
+                            <motion.div key="submitted" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }}
+                                className="glass-card text-center py-10">
+                                <div className="w-16 h-16 rounded-full bg-neon-green/15 flex items-center justify-center mx-auto mb-5">
+                                    <CheckCircleIcon className="w-9 h-9 text-neon-green" />
+                                </div>
+                                <h3 className="text-lg font-bold text-neon-green mb-2">Request Submitted!</h3>
+                                <p className="text-sm text-text-secondary max-w-xs mx-auto mb-1">
+                                    Your deposit request is being reviewed by our team.
+                                </p>
+                                <p className="text-xs text-text-muted mb-6">You will be credited once approved.</p>
+                                <button onClick={resetDeposit} className="btn-outline text-sm px-8">
+                                    Make Another Deposit
+                                </button>
+                            </motion.div>
+                        )}
+                    </AnimatePresence>
                 </motion.div>
             )}
 

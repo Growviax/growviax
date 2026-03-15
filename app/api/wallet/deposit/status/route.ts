@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getUserIdFromRequest } from '@/lib/user';
-import { queryOne } from '@/lib/db';
-import { triggerDepositMonitor } from '@/lib/monitor';
+import { queryOne, query } from '@/lib/db';
 
 const DEPOSIT_WALLETS = [
     { qr: '/img/qr1.jpeg', address: '0xEE6edC5cb5C07D7A1Eb2ec5EB953d640fE046152' },
@@ -44,26 +43,12 @@ export async function GET(request: Request) {
             [userId]
         );
 
-        let monitor = null;
-        if (latestRequest?.status === 'pending') {
-            try {
-                monitor = await triggerDepositMonitor();
-            } catch (error) {
-                console.error('Deposit status monitor warning:', error);
-                monitor = {
-                    ran: false,
-                    reusedActiveRun: false,
-                    error: 'Deposit scan temporarily unavailable',
-                };
-            }
-        }
-
-        const depositRequest = await queryOne<DepositRequestRow>(
+        const recentRequests = await query<DepositRequestRow[]>(
             `SELECT id, wallet_address, status, matched_tx_hash, created_at, expires_at
              FROM deposit_requests
              WHERE user_id = ?
              ORDER BY created_at DESC
-             LIMIT 1`,
+             LIMIT 10`,
             [userId]
         );
 
@@ -76,21 +61,31 @@ export async function GET(request: Request) {
             [userId]
         );
 
-        const wallet = depositRequest
+        const recentDeposits = await query<DepositTransactionRow[]>(
+            `SELECT id, amount, tx_hash, notes, created_at
+             FROM transactions
+             WHERE user_id = ? AND type = "deposit"
+             ORDER BY created_at DESC
+             LIMIT 10`,
+            [userId]
+        );
+
+        const wallet = latestRequest
             ? DEPOSIT_WALLETS.find(
-                (item) => item.address.toLowerCase() === depositRequest.wallet_address.toLowerCase()
+                (item) => item.address.toLowerCase() === latestRequest.wallet_address.toLowerCase()
             )
             : null;
 
         return NextResponse.json({
-            depositRequest: depositRequest
+            request: latestRequest
                 ? {
-                    ...depositRequest,
+                    ...latestRequest,
                     qr: wallet?.qr || '/img/qr1.jpeg',
                 }
                 : null,
             latestDeposit: latestDeposit || null,
-            monitor,
+            recentRequests: recentRequests || [],
+            recentDeposits: recentDeposits || [],
         });
     } catch (error: unknown) {
         console.error('Deposit status error:', error);
