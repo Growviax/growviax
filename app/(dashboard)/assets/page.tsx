@@ -15,8 +15,8 @@ import {
 import clsx from 'clsx';
 import dayjs from 'dayjs';
 
-const MIN_WITHDRAW_UPI = 1000; // ₹1,000 minimum for UPI
-const MIN_WITHDRAW_USDT = 10; // $10 minimum for USDT (≈ ₹980)
+const MIN_WITHDRAW_UPI =500; // ₹1,000 minimum for UPI
+const MIN_WITHDRAW_USDT = 5; // $10 minimum for USDT (≈ ₹980)
 const ITEMS_PER_PAGE = 10;
 const USD_TO_INR = 98; // Conversion rate
 
