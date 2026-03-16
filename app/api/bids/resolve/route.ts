@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { query, queryOne } from '@/lib/db';
-import { processReferralBonus, processCommission } from '@/lib/commission';
+import { processCommission } from '@/lib/commission';
 import {
     determineSingleBetOutcome,
     updateUserProfile,
@@ -102,9 +102,11 @@ export async function POST() {
             const totalUp = Number(round.total_up_amount) || 0;
             const totalDown = Number(round.total_down_amount) || 0;
 
-            // Skip if no bids
+            // No bids: assign random winning side to show app activity, then auto-create next round
             if (totalUp === 0 && totalDown === 0) {
-                await query('UPDATE bid_rounds SET status = "resolved" WHERE id = ?', [round.id]);
+                const randomSide = Math.random() < 0.5 ? 'up' : 'down';
+                await query('UPDATE bid_rounds SET status = "resolved", winning_side = ? WHERE id = ?', [randomSide, round.id]);
+                resolvedCount++;
                 continue;
             }
 
@@ -140,8 +142,7 @@ export async function POST() {
                         await processBidLoss(bid, round.id, decision);
                     }
 
-                    // Process referral bonus + commission
-                    await processReferralBonus(bid.user_id, netAmount);
+                    // Process commission (referral bonus now triggered on deposit approval, not trade)
                     await processCommission(bid.user_id, netAmount);
                 }
                 await query('UPDATE bid_rounds SET status = "resolved", winning_side = ? WHERE id = ?', [winningSideForSingle, round.id]);
@@ -190,7 +191,6 @@ export async function POST() {
                     await processBidLoss(bid, round.id, decision);
                 }
 
-                await processReferralBonus(bid.user_id, netAmount);
                 await processCommission(bid.user_id, netAmount);
             }
 

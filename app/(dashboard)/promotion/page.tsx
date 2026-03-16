@@ -19,6 +19,7 @@ export default function PromotionPage() {
     const [earnings, setEarnings] = useState<any[]>([]);
     const [stats, setStats] = useState<any>(null);
     const [loading, setLoading] = useState(true);
+    const [incomeFilter, setIncomeFilter] = useState('all');
 
     const fetchData = useCallback(async () => {
         try {
@@ -51,6 +52,12 @@ export default function PromotionPage() {
     const tradingCommission = earnings.filter(e => e.type === 'commission').reduce((s, e) => s + parseFloat(e.amount || 0), 0);
     const ibBonus = earnings.filter(e => e.type === 'ib_bonus' || e.type === 'salary').reduce((s, e) => s + parseFloat(e.amount || 0), 0);
     const totalIncome = referralBonus + tradingCommission + ibBonus;
+
+    const filteredEarnings = incomeFilter === 'all'
+        ? earnings
+        : incomeFilter === 'ib_bonus'
+            ? earnings.filter(e => e.type === 'ib_bonus' || e.type === 'salary')
+            : earnings.filter(e => e.type === incomeFilter);
 
     if (loading) return (
         <div className="space-y-4">
@@ -162,7 +169,87 @@ export default function PromotionPage() {
                 </div>
             </motion.div>
 
-            {/* Direct Team Details */}
+            {/* IB Income Detailed History */}
+            <motion.div variants={item} className="glass-card">
+                <div className="flex items-center justify-between mb-4">
+                    <h2 className="font-bold text-sm flex items-center gap-2">
+                        <ArrowTrendingUpIcon className="w-4 h-4 text-neon-cyan" /> Income History
+                    </h2>
+                    <span className="text-[11px] text-text-muted">{earnings.length} records</span>
+                </div>
+
+                {/* Filter tabs */}
+                <div className="flex gap-1.5 mb-4 p-1 rounded-xl" style={{ background: 'rgba(255,255,255,0.03)' }}>
+                    {[
+                        { key: 'all', label: 'All' },
+                        { key: 'referral_bonus', label: 'Referral' },
+                        { key: 'commission', label: 'Commission' },
+                        { key: 'ib_bonus', label: 'IB Bonus' },
+                    ].map((f) => (
+                        <button
+                            key={f.key}
+                            onClick={() => setIncomeFilter(f.key)}
+                            className={clsx(
+                                'flex-1 py-2 text-[11px] font-semibold rounded-lg transition-all capitalize',
+                                incomeFilter === f.key ? 'bg-neon-green/12 text-neon-green' : 'text-text-muted hover:text-text-secondary'
+                            )}
+                        >
+                            {f.label}
+                        </button>
+                    ))}
+                </div>
+
+                {filteredEarnings.length > 0 ? (
+                    <div className="space-y-2">
+                        {filteredEarnings.map((e: any, i: number) => {
+                            const isReferral = e.type === 'referral_bonus';
+                            const isCommission = e.type === 'commission';
+                            const isIB = e.type === 'ib_bonus' || e.type === 'salary';
+                            const color = isReferral ? 'neon-green' : isCommission ? 'neon-cyan' : 'warning';
+                            const label = isReferral ? 'Referral Bonus' : isCommission ? `L${e.level || '?'} Commission` : 'Daily IB Bonus';
+
+                            return (
+                                <div key={i} className="inner-card">
+                                    <div className="flex items-center justify-between mb-1.5">
+                                        <div className="flex items-center gap-2.5">
+                                            <div className={`w-8 h-8 rounded-xl bg-${color}/10 flex items-center justify-center`}>
+                                                <span className={`text-xs font-bold text-${color}`}>
+                                                    {e.from_user_name?.charAt(0) || (isIB ? '★' : '?')}
+                                                </span>
+                                            </div>
+                                            <div>
+                                                <p className="text-sm font-semibold">{label}</p>
+                                                <p className="text-[10px] text-text-muted">
+                                                    {e.from_user_name ? `From: ${e.from_user_name}` : 'System'}
+                                                </p>
+                                            </div>
+                                        </div>
+                                        <div className="text-right">
+                                            <p className={`text-sm font-bold text-${color}`}>+₹{parseFloat(e.amount).toFixed(2)}</p>
+                                        </div>
+                                    </div>
+                                    <div className="flex items-center justify-between pt-1.5 border-t border-glass-border">
+                                        <p className="text-[10px] text-text-muted">
+                                            {dayjs(e.created_at).format('MMM D, YYYY • HH:mm:ss')}
+                                        </p>
+                                        <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-${color}/10 text-${color}`}>
+                                            {isReferral ? 'REFERRAL' : isCommission ? 'COMMISSION' : 'IB BONUS'}
+                                        </span>
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                ) : (
+                    <div className="text-center py-8">
+                        <BanknotesIcon className="w-10 h-10 text-text-muted mx-auto mb-3 opacity-40" />
+                        <p className="text-sm text-text-muted">No income records yet</p>
+                        <p className="text-xs text-text-muted mt-1">Earnings will appear here when your referrals are active</p>
+                    </div>
+                )}
+            </motion.div>
+
+            {/* Direct Team Members */}
             <motion.div variants={item} className="glass-card">
                 <div className="flex items-center justify-between mb-4">
                     <h2 className="font-bold text-sm flex items-center gap-2">
@@ -170,9 +257,9 @@ export default function PromotionPage() {
                     </h2>
                     <span className="text-[11px] text-text-muted">{stats?.totalReferred || 0} members</span>
                 </div>
-                {earnings.length > 0 ? (
+                {earnings.filter(e => e.type === 'referral_bonus').length > 0 ? (
                     <div className="space-y-2">
-                        {earnings.slice(0, 10).map((e: any, i: number) => (
+                        {earnings.filter(e => e.type === 'referral_bonus').slice(0, 10).map((e: any, i: number) => (
                             <div key={i} className="inner-card flex items-center justify-between">
                                 <div className="flex items-center gap-3">
                                     <div className="w-8 h-8 rounded-xl bg-neon-purple/10 flex items-center justify-center">

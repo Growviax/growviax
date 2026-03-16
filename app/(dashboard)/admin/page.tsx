@@ -74,6 +74,7 @@ export default function AdminPage() {
     const [referralStats, setReferralStats] = useState<any>(null);
     const [editReferralRate, setEditReferralRate] = useState('');
     const [editCommissionLevels, setEditCommissionLevels] = useState<{level: number, rate: number}[]>([]);
+    const [editCommissionTexts, setEditCommissionTexts] = useState<string[]>([]);
     const [isEditingCommission, setIsEditingCommission] = useState(false);
 
     /* ── Data fetching ────────────────── */
@@ -284,15 +285,23 @@ export default function AdminPage() {
     };
 
     const handleUpdateCommissionLevels = async () => {
-        // Validate all rates
-        for (const lvl of editCommissionLevels) {
-            if (isNaN(lvl.rate) || lvl.rate < 0 || lvl.rate > 100) {
-                return toast.error(`Invalid rate for Level ${lvl.level} (0-100%)`);
+        // Convert text inputs to decimal rates
+        const levelsToSave = editCommissionLevels.map((lvl, i) => {
+            const textVal = editCommissionTexts[i] || '0';
+            const pctVal = parseFloat(textVal);
+            if (isNaN(pctVal) || pctVal < 0 || pctVal > 100) {
+                return null; // invalid
             }
+            return { level: lvl.level, rate: pctVal / 100 };
+        });
+
+        if (levelsToSave.some(l => l === null)) {
+            return toast.error('All rates must be valid numbers between 0-100%');
         }
+
         setProcessing(true);
         try {
-            await axios.patch('/api/admin/referral-settings', { commissionLevels: editCommissionLevels });
+            await axios.patch('/api/admin/referral-settings', { commissionLevels: levelsToSave });
             toast.success('Commission levels updated');
             setIsEditingCommission(false);
             fetchReferralSettings();
@@ -302,13 +311,16 @@ export default function AdminPage() {
     };
 
     const handleEditCommission = () => {
-        setEditCommissionLevels(referralSettings?.commissionLevels || []);
+        const levels = referralSettings?.commissionLevels || [];
+        setEditCommissionLevels(levels);
+        setEditCommissionTexts(levels.map((lvl: any) => (lvl.rate * 100).toFixed(2)));
         setIsEditingCommission(true);
     };
 
     const handleCancelEditCommission = () => {
         setIsEditingCommission(false);
         setEditCommissionLevels([]);
+        setEditCommissionTexts([]);
     };
 
     /* ── Tab config ───────────────────── */
@@ -1048,19 +1060,17 @@ export default function AdminPage() {
                                                 <input 
                                                     type="text"
                                                     inputMode="decimal"
-                                                    value={(lvl.rate * 100).toFixed(2)}
+                                                    value={editCommissionTexts[i] || ''}
                                                     onChange={(e) => {
                                                         const val = e.target.value;
-                                                        // Allow empty, numbers, and decimal point
                                                         if (val === '' || /^\d*\.?\d*$/.test(val)) {
-                                                            const newLevels = [...editCommissionLevels];
-                                                            const numVal = parseFloat(val);
-                                                            newLevels[i].rate = isNaN(numVal) ? 0 : Math.min(100, Math.max(0, numVal)) / 100;
-                                                            setEditCommissionLevels(newLevels);
+                                                            const newTexts = [...editCommissionTexts];
+                                                            newTexts[i] = val;
+                                                            setEditCommissionTexts(newTexts);
                                                         }
                                                     }}
                                                     className="glass-input text-sm py-1.5 w-24"
-                                                    placeholder="0.00"
+                                                    placeholder="e.g. 0.81"
                                                 />
                                                 <span className="text-sm text-text-muted">%</span>
                                             </div>

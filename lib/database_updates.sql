@@ -13,9 +13,8 @@ USE growviax;
 -- Add is_blocked column to users if not exists
 -- ALTER TABLE users ADD COLUMN is_blocked TINYINT(1) DEFAULT 0;
 
--- Add total_deposited and total_traded to users if not exists
--- ALTER TABLE users ADD COLUMN total_deposited DECIMAL(18,8) DEFAULT 0;
--- ALTER TABLE users ADD COLUMN total_traded DECIMAL(18,8) DEFAULT 0;
+-- NOTE: total_deposited and total_traded are computed dynamically from transactions table
+-- in /api/user route. No need to add them as columns to users table.
 
 -- Alter transactions type ENUM to include new types
 ALTER TABLE transactions MODIFY COLUMN type ENUM(
@@ -255,7 +254,49 @@ CREATE TABLE IF NOT EXISTS referral_earnings (
 );
 
 -- =====================================================
--- 9. CLEANUP: Remove processed_deposits table (no longer needed)
+-- 10. COMMISSION HISTORY TABLE
+-- =====================================================
+
+CREATE TABLE IF NOT EXISTS commission_history (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL,
+    from_user_id INT NOT NULL,
+    level INT NOT NULL DEFAULT 1,
+    trade_amount DECIMAL(18,8) NOT NULL DEFAULT 0,
+    commission_amount DECIMAL(18,8) NOT NULL DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_user (user_id),
+    INDEX idx_from_user (from_user_id),
+    INDEX idx_level (level),
+    INDEX idx_created (created_at)
+);
+
+-- =====================================================
+-- 11. DAILY SALARY LOG TABLE (IB Bonus tracking)
+-- =====================================================
+
+CREATE TABLE IF NOT EXISTS daily_salary_log (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL,
+    tier_id INT NOT NULL,
+    amount DECIMAL(18,8) NOT NULL DEFAULT 0,
+    credited_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_user (user_id),
+    INDEX idx_date (credited_at),
+    INDEX idx_user_date (user_id, credited_at)
+);
+
+-- =====================================================
+-- 12. ADD type AND level COLUMNS TO referral_earnings
+-- =====================================================
+
+-- Add type column to distinguish referral bonus vs commission vs ib bonus
+ALTER TABLE referral_earnings ADD COLUMN type VARCHAR(50) DEFAULT 'referral_bonus';
+ALTER TABLE referral_earnings ADD COLUMN level INT DEFAULT NULL;
+ALTER TABLE referral_earnings ADD INDEX idx_type (type);
+
+-- =====================================================
+-- CLEANUP
 -- =====================================================
 
 -- DROP TABLE IF EXISTS processed_deposits;

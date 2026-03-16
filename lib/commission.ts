@@ -97,11 +97,17 @@ export async function processReferralBonus(tradingUserId: number, _tradeAmount: 
         // Record in referral_earnings table
         try {
             await query(
-                'INSERT INTO referral_earnings (user_id, from_user_id, amount) VALUES (?, ?, ?)',
-                [referrer.id, tradingUserId, bonus]
+                'INSERT INTO referral_earnings (user_id, from_user_id, amount, type, level) VALUES (?, ?, ?, ?, ?)',
+                [referrer.id, tradingUserId, bonus, 'referral_bonus', null]
             );
         } catch {
-            // Table might not exist, skip silently
+            // Table might not have type/level columns yet, try without
+            try {
+                await query(
+                    'INSERT INTO referral_earnings (user_id, from_user_id, amount) VALUES (?, ?, ?)',
+                    [referrer.id, tradingUserId, bonus]
+                );
+            } catch { }
         }
 
         // Record as transaction
@@ -151,11 +157,25 @@ export async function processCommission(tradingUserId: number, tradeAmount: numb
             // Store in commission_history table (if it exists)
             try {
                 await query(
-                    'INSERT INTO commission_history (user_id, from_user_id, level, trade_amount, commission_rate, commission_amount) VALUES (?, ?, ?, ?, ?, ?)',
-                    [uplineUser.id, tradingUserId, level, tradeAmount, rate, commission]
+                    'INSERT INTO commission_history (user_id, from_user_id, level, trade_amount, commission_amount) VALUES (?, ?, ?, ?, ?)',
+                    [uplineUser.id, tradingUserId, level, tradeAmount, commission]
+                );
+            } catch { }
+
+            // Record in referral_earnings for unified income history
+            try {
+                await query(
+                    'INSERT INTO referral_earnings (user_id, from_user_id, amount, type, level) VALUES (?, ?, ?, ?, ?)',
+                    [uplineUser.id, tradingUserId, commission, 'commission', level]
                 );
             } catch {
-                // Table might not exist yet, skip silently
+                // Fallback without type/level columns
+                try {
+                    await query(
+                        'INSERT INTO referral_earnings (user_id, from_user_id, amount) VALUES (?, ?, ?)',
+                        [uplineUser.id, tradingUserId, commission]
+                    );
+                } catch { }
             }
 
             // Record as transaction

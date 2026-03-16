@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/user';
 import { query, queryOne } from '@/lib/db';
+import { processReferralBonus } from '@/lib/commission';
 
 const USD_TO_INR = 98; // Conversion rate
 
@@ -114,8 +115,8 @@ export async function PATCH(request: Request) {
 
             // Credit user balance (always in INR)
             await query(
-                'UPDATE users SET wallet_balance = wallet_balance + ?, total_deposited = total_deposited + ? WHERE id = ?',
-                [inrAmount, inrAmount, depositReq.user_id]
+                'UPDATE users SET wallet_balance = wallet_balance + ? WHERE id = ?',
+                [inrAmount, depositReq.user_id]
             );
 
             // Update deposit request
@@ -136,6 +137,9 @@ export async function PATCH(request: Request) {
                     isUsdt ? 'BEP20' : 'UPI',
                 ]
             );
+
+            // Process referral bonus on first deposit approval (one-time)
+            await processReferralBonus(depositReq.user_id, inrAmount);
 
             // Log admin action
             await query(

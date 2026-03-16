@@ -76,6 +76,8 @@ export default function TradePage() {
     const [trades, setTrades] = useState<any[]>([]);
     const [tradeTab, setTradeTab] = useState<'open' | 'closed'>('open');
     const [tradeDuration, setTradeDuration] = useState(33);
+    const [walletBalance, setWalletBalance] = useState<number>(0);
+    const [roundHistory, setRoundHistory] = useState<any[]>([]);
 
     /* ── trade detail modal state ─────────────────── */
     const [selectedTrade, setSelectedTrade] = useState<any>(null);
@@ -127,16 +129,32 @@ export default function TradePage() {
         } catch { }
     }, [coinId]);
 
+    const fetchWalletBalance = useCallback(async () => {
+        try {
+            const res = await axios.get('/api/user');
+            setWalletBalance(Number(res.data.user?.wallet_balance || 0));
+        } catch { }
+    }, []);
+
+    const fetchRoundHistory = useCallback(async () => {
+        try {
+            const res = await axios.get(`/api/bids/rounds-history?coinId=${coinId}&limit=50`);
+            setRoundHistory(res.data.rounds || []);
+        } catch { }
+    }, [coinId]);
+
     const resolveRounds = useCallback(async () => {
         try { await axios.post('/api/bids/resolve'); } catch { }
     }, []);
 
     useEffect(() => {
-        fetchCoinData(); fetchRound(); fetchTrades();
+        fetchCoinData(); fetchRound(); fetchTrades(); fetchWalletBalance(); fetchRoundHistory();
         const priceInterval = setInterval(fetchCoinData, 10000);
         const roundInterval = setInterval(() => { fetchRound(); resolveRounds(); }, 5000);
-        return () => { clearInterval(priceInterval); clearInterval(roundInterval); };
-    }, [fetchCoinData, fetchRound, fetchTrades, resolveRounds]);
+        const balanceInterval = setInterval(fetchWalletBalance, 15000);
+        const historyInterval = setInterval(fetchRoundHistory, 10000);
+        return () => { clearInterval(priceInterval); clearInterval(roundInterval); clearInterval(balanceInterval); clearInterval(historyInterval); };
+    }, [fetchCoinData, fetchRound, fetchTrades, fetchWalletBalance, fetchRoundHistory, resolveRounds]);
 
     /* ── countdown & result logic ─────────────────── */
     useEffect(() => {
@@ -383,7 +401,7 @@ export default function TradePage() {
                 duration: tradeDuration,
             });
             toast.success(res.data.message);
-            fetchRound(); fetchTrades();
+            fetchRound(); fetchTrades(); fetchWalletBalance(); fetchRoundHistory();
         } catch (error: any) {
             toast.error(error.response?.data?.error || 'Failed to place bid');
         } finally { setPlacing(false); }
@@ -428,6 +446,15 @@ export default function TradePage() {
                         {timeLeft}
                     </span>
                 </div>
+            </div>
+
+            {/* ── Wallet Balance ─────────────────────── */}
+            <div className="flex items-center justify-between px-1">
+                <div className="flex items-center gap-2">
+                    <CurrencyRupeeIcon className="w-4 h-4 text-neon-green" />
+                    <span className="text-xs text-text-muted">Balance</span>
+                </div>
+                <span className="text-sm font-bold text-neon-green">₹{walletBalance.toFixed(2)}</span>
             </div>
 
             {/* ── Chart Card ────────────────────────── */}
@@ -483,19 +510,50 @@ export default function TradePage() {
                 <div ref={chartRef} className="w-full" />
             </div>
 
-            {/* ── Period ID (below chart, always visible) ─── */}
+            {/* ── Period ID (below chart, always visible, changes every round) ─── */}
             <div className="flex items-center justify-center">
                 <span className="inline-flex items-center gap-2 px-4 py-2 rounded-2xl text-xs font-bold font-mono"
                     style={{ background: 'rgba(0,212,255,0.08)', color: '#00d4ff', border: '1px solid rgba(0,212,255,0.15)' }}>
                     <BoltIcon className="w-3.5 h-3.5" />
-                    PERIOD {(() => {
-                        // Stable 20-digit ID: hash of coinId. Changes per coin, stable per session.
-                        const base = coinId.split('').reduce((acc, ch) => acc + ch.charCodeAt(0), 0);
-                        const roundPart = round ? String(round.id).padStart(5, '0') : '00001';
-                        const coinHash = String(base * 7919 + 20260308).slice(0, 15).padStart(15, '0');
-                        return coinHash + roundPart;
-                    })()}
+                    PERIOD {round?.periodId || '00000000000000000001'}
                 </span>
+            </div>
+
+            {/* ── Round History (all rounds with up/down result) ─── */}
+            <div className="glass-card">
+                <p className="text-[11px] text-text-muted uppercase tracking-wider font-medium mb-3 flex items-center gap-2">
+                    <CalendarDaysIcon className="w-3.5 h-3.5 text-neon-purple" /> Round History
+                </p>
+                {roundHistory.length > 0 ? (
+                    <div className="space-y-1.5 max-h-60 overflow-y-auto">
+                        {roundHistory.map((rh: any) => {
+                            const periodId = (() => {
+                                const base = coinId.split('').reduce((acc: number, ch: string) => acc + ch.charCodeAt(0), 0);
+                                const coinHash = String(base * 7919 + 20260308).slice(0, 15).padStart(15, '0');
+                                return coinHash + String(rh.id).padStart(5, '0');
+                            })();
+                            const isUp = rh.winning_side === 'up';
+                            return (
+                                <div key={rh.id} className="flex items-center justify-between py-2 px-3 rounded-xl bg-glass/30">
+                                    <div className="flex items-center gap-2.5">
+                                        <div className={clsx('w-7 h-7 rounded-lg flex items-center justify-center', isUp ? 'bg-up' : 'bg-down')}>
+                                            {isUp ? <ArrowUpIcon className="w-3.5 h-3.5 text-neon-green" /> : <ArrowDownIcon className="w-3.5 h-3.5 text-neon-red" />}
+                                        </div>
+                                        <div>
+                                            <p className={clsx('text-[11px] font-bold', isUp ? 'text-neon-green' : 'text-neon-red')}>
+                                                {isUp ? 'UP' : 'DOWN'}
+                                            </p>
+                                            <p className="text-[9px] text-text-muted font-mono">{periodId}</p>
+                                        </div>
+                                    </div>
+                                    <p className="text-[10px] text-text-muted">{dayjs(rh.end_time).format('MMM D, HH:mm:ss')}</p>
+                                </div>
+                            );
+                        })}
+                    </div>
+                ) : (
+                    <p className="text-xs text-text-muted text-center py-4">No round history yet</p>
+                )}
             </div>
 
             {/* ── Trade Duration Selector ──────────── */}

@@ -60,7 +60,8 @@ function AssetsContent() {
 
     /* Deposit state — new manual verification system */
     const [depositMethod, setDepositMethod] = useState<'usdt' | 'upi'>('usdt');
-    const [depositStep, setDepositStep] = useState<'choose' | 'usdt_qr' | 'usdt_hash' | 'upi_pay' | 'upi_utr' | 'submitted'>('choose');
+    const [depositStep, setDepositStep] = useState<'choose' | 'amount' | 'usdt_qr' | 'usdt_hash' | 'upi_pay' | 'upi_utr' | 'submitted'>('choose');
+    const [preDepositAmount, setPreDepositAmount] = useState('');
     const [selectedWallet, setSelectedWallet] = useState<{ qr: string; address: string } | null>(null);
     const [walletsList, setWalletsList] = useState<{ qr: string; address: string }[]>([]);
     const [depositLoading, setDepositLoading] = useState(false);
@@ -164,6 +165,20 @@ function AssetsContent() {
         } finally { setDepositLoading(false); }
     };
 
+    /* ── Validate amount and proceed to payment step ── */
+    const handleAmountContinue = async () => {
+        const amt = parseFloat(preDepositAmount);
+        if (depositMethod === 'usdt') {
+            if (!amt || amt < 5) return toast.error('Minimum USDT deposit is $5');
+            setDepositAmountInput(preDepositAmount);
+            await handleStartUSDT();
+        } else {
+            if (!amt || amt < 500) return toast.error('Minimum UPI deposit is ₹500');
+            setUpiAmountInput(preDepositAmount);
+            await handleStartUPI();
+        }
+    };
+
     /* ── Reset deposit flow ───────────────────────── */
     const resetDeposit = () => {
         setDepositStep('choose');
@@ -173,6 +188,7 @@ function AssetsContent() {
         setAssignedUpi(null);
         setUtrInput('');
         setUpiAmountInput('');
+        setPreDepositAmount('');
     };
 
 
@@ -220,8 +236,8 @@ function AssetsContent() {
     /* ── History filtering ─────────────────────────── */
     const filteredTransactions = transactions.filter((t) => {
         const typeMatch = historyTab === 'deposit'
-            ? ['deposit', 'bid_win', 'referral_bonus'].includes(t.type)
-            : ['withdrawal', 'bid_loss'].includes(t.type);
+            ? ['deposit', 'referral_bonus', 'commission'].includes(t.type)
+            : ['withdrawal'].includes(t.type);
         const statusMatch = statusFilter === 'all' || t.status === statusFilter;
         return typeMatch && statusMatch;
     });
@@ -309,7 +325,7 @@ function AssetsContent() {
                                     <p className="text-xs text-text-muted">Choose your deposit method</p>
                                 </div>
                                 <div className="grid grid-cols-2 gap-3">
-                                    <button onClick={() => { setDepositMethod('usdt'); handleStartUSDT(); }} disabled={depositLoading}
+                                    <button onClick={() => { setDepositMethod('usdt'); setPreDepositAmount(''); setDepositStep('amount'); }} disabled={depositLoading}
                                         className="glass-card flex flex-col items-center gap-3 py-6 hover:border-neon-cyan/30 transition-all">
                                         <div className="w-14 h-14 rounded-2xl bg-neon-cyan/10 flex items-center justify-center">
                                             <WalletIcon className="w-7 h-7 text-neon-cyan" />
@@ -319,7 +335,7 @@ function AssetsContent() {
                                             <p className="text-[10px] text-text-muted">BEP20 (BSC)</p>
                                         </div>
                                     </button>
-                                    <button onClick={() => { setDepositMethod('upi'); handleStartUPI(); }} disabled={depositLoading}
+                                    <button onClick={() => { setDepositMethod('upi'); setPreDepositAmount(''); setDepositStep('amount'); }} disabled={depositLoading}
                                         className="glass-card flex flex-col items-center gap-3 py-6 hover:border-neon-green/30 transition-all">
                                         <div className="w-14 h-14 rounded-2xl bg-neon-green/10 flex items-center justify-center">
                                             <BanknotesIcon className="w-7 h-7 text-neon-green" />
@@ -330,12 +346,97 @@ function AssetsContent() {
                                         </div>
                                     </button>
                                 </div>
-                                {depositLoading && (
-                                    <div className="flex items-center justify-center gap-2 py-4">
-                                        <ArrowPathIcon className="w-5 h-5 text-neon-cyan animate-spin" />
-                                        <span className="text-sm text-text-muted">Loading...</span>
+                            </motion.div>
+                        )}
+
+                        {/* ── Step: Enter Amount First ── */}
+                        {depositStep === 'amount' && (
+                            <motion.div key="amount" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-4">
+                                <div className="glass-card">
+                                    <div className="flex items-center gap-2 mb-5">
+                                        <button onClick={resetDeposit} className="btn-ghost p-2 text-xs">Back</button>
+                                        <p className="text-sm font-bold flex-1 text-center">
+                                            {depositMethod === 'usdt' ? 'USDT Deposit' : 'UPI Deposit'}
+                                        </p>
+                                        <span className={clsx('text-[10px] font-semibold px-2 py-0.5 rounded-full', depositMethod === 'usdt' ? 'bg-neon-cyan/15 text-neon-cyan' : 'bg-neon-green/15 text-neon-green')}>
+                                            {depositMethod === 'usdt' ? 'BEP20' : 'INR'}
+                                        </span>
                                     </div>
-                                )}
+
+                                    <div className="space-y-4">
+                                        <div>
+                                            <label className="form-label flex items-center gap-2">
+                                                {depositMethod === 'usdt' ? (
+                                                    <><WalletIcon className="w-4 h-4 text-text-muted" /> Deposit Amount (USD)</>
+                                                ) : (
+                                                    <><BanknotesIcon className="w-4 h-4 text-text-muted" /> Deposit Amount (INR)</>
+                                                )}
+                                            </label>
+                                            <div className="relative">
+                                                {depositMethod === 'usdt' && (
+                                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-neon-green font-bold">$</span>
+                                                )}
+                                                {depositMethod === 'upi' && (
+                                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-neon-green font-bold">₹</span>
+                                                )}
+                                                <input
+                                                    type="number"
+                                                    value={preDepositAmount}
+                                                    onChange={(e) => setPreDepositAmount(e.target.value)}
+                                                    placeholder={depositMethod === 'usdt' ? 'e.g. 50' : 'e.g. 5000'}
+                                                    className="glass-input text-lg font-semibold pl-7"
+                                                    min={depositMethod === 'usdt' ? 5 : 500}
+                                                    step="0.01"
+                                                    autoFocus
+                                                />
+                                            </div>
+                                            <div className="flex items-center justify-between mt-2">
+                                                <p className="text-[10px] text-text-muted">
+                                                    Min: <span className="text-neon-green font-medium">{depositMethod === 'usdt' ? '$5' : '₹500'}</span>
+                                                </p>
+                                                {depositMethod === 'usdt' && preDepositAmount && parseFloat(preDepositAmount) > 0 && (
+                                                    <p className="text-[10px] text-neon-cyan">
+                                                        ≈ ₹{(parseFloat(preDepositAmount) * USD_TO_INR).toLocaleString()}
+                                                    </p>
+                                                )}
+                                            </div>
+                                        </div>
+
+                                        {/* Quick amount buttons */}
+                                        <div className="flex gap-1.5">
+                                            {(depositMethod === 'usdt'
+                                                ? [5, 10, 25, 50, 100]
+                                                : [500, 1000, 2000, 5000, 10000]
+                                            ).map((amt) => (
+                                                <button
+                                                    key={amt}
+                                                    type="button"
+                                                    onClick={() => setPreDepositAmount(String(amt))}
+                                                    className={clsx(
+                                                        'flex-1 py-2 text-xs font-semibold rounded-xl transition-all duration-200 border',
+                                                        preDepositAmount === String(amt)
+                                                            ? 'bg-neon-green/12 text-neon-green border-neon-green/20'
+                                                            : 'bg-glass text-text-muted border-transparent hover:text-text-secondary hover:border-glass-border'
+                                                    )}
+                                                >
+                                                    {depositMethod === 'usdt' ? `$${amt}` : `₹${amt.toLocaleString()}`}
+                                                </button>
+                                            ))}
+                                        </div>
+
+                                        <button
+                                            onClick={handleAmountContinue}
+                                            disabled={depositLoading}
+                                            className="btn-glow w-full text-sm flex items-center justify-center gap-2"
+                                        >
+                                            {depositLoading ? (
+                                                <><ArrowPathIcon className="w-4 h-4 animate-spin" /> Loading...</>
+                                            ) : (
+                                                <>Continue to Payment</>
+                                            )}
+                                        </button>
+                                    </div>
+                                </div>
                             </motion.div>
                         )}
 
