@@ -39,7 +39,7 @@ export async function POST(request: Request) {
 
         // Check minimum amount based on method
         const MIN_WITHDRAW_USDT = 10; // $10 minimum
-        const MIN_WITHDRAW_UPI = 1000; // ₹1,000 minimum
+        const MIN_WITHDRAW_UPI = 500; // ₹500 minimum
         
         if (withdrawMethod === 'usdt') {
             if (amount < MIN_WITHDRAW_USDT) {
