@@ -209,7 +209,12 @@ INSERT INTO platform_settings (setting_key, setting_value) VALUES
 ON DUPLICATE KEY UPDATE setting_value = setting_value;
 
 INSERT INTO platform_settings (setting_key, setting_value) VALUES
-    ('new_user_max_win_amount', '500')
+    ('new_user_max_win_amount', '100')
+ON DUPLICATE KEY UPDATE setting_value = '100';
+
+-- Minimum deposit required to earn referral/commission/IB income
+INSERT INTO platform_settings (setting_key, setting_value) VALUES
+    ('min_deposit_for_earnings', '500')
 ON DUPLICATE KEY UPDATE setting_value = setting_value;
 
 INSERT INTO platform_settings (setting_key, setting_value) VALUES

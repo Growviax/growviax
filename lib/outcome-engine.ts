@@ -45,7 +45,7 @@ const DEFAULT_HOUSE_EDGE = 0.08;       // 8% house edge
 const DEFAULT_MAX_WIN_RATE = 0.45;     // Max 45% win rate per user
 const DEFAULT_RISK_THRESHOLD = 0.7;    // Risk score threshold
 const NEW_USER_BONUS_WINS = 3;
-const NEW_USER_MAX_WIN_AMOUNT = 500;
+const NEW_USER_MAX_WIN_AMOUNT = 100;
 const MAX_STREAK = 4;                  // Max consecutive same results
 const JITTER_RANGE = 0.15;            // Random jitter to prevent pattern detection
 

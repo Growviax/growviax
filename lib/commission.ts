@@ -16,6 +16,19 @@ const DEFAULT_COMMISSION_LEVELS = [
 ];
 
 const DEFAULT_REFERRAL_BONUS_RATE = 0.03; // 3% direct referral bonus
+const MIN_DEPOSIT_FOR_EARNINGS = 500; // Minimum total deposit required to earn commissions
+
+// Helper: Check if user has minimum deposit to earn commissions
+async function hasMinimumDeposit(userId: number): Promise<boolean> {
+    try {
+        const result = await queryOne<{ total: number }>(
+            `SELECT COALESCE(SUM(amount), 0) as total FROM transactions 
+             WHERE user_id = ? AND type = 'deposit' AND status = 'completed'`,
+            [userId]
+        );
+        return (Number(result?.total) || 0) >= MIN_DEPOSIT_FOR_EARNINGS;
+    } catch { return false; }
+}
 
 // Helper to get setting from database
 async function getSetting(key: string, defaultVal: string): Promise<string> {
@@ -58,20 +71,22 @@ export async function processReferralBonus(tradingUserId: number, _tradeAmount: 
 
         if (!user || !user.referred_by) return;
 
+        // Check if referrer has minimum deposit (500) to earn referral bonus
+        const referrer = await queryOne<any>(
+            'SELECT id FROM users WHERE referral_code = ?',
+            [user.referred_by]
+        );
+        if (!referrer) return;
+        
+        const referrerHasMinDeposit = await hasMinimumDeposit(referrer.id);
+        if (!referrerHasMinDeposit) return; // Referrer hasn't deposited minimum 500 yet
+
         // Check if referral bonus already paid for this user (one-time only)
         const existingBonus = await queryOne<{ count: number }>(
             'SELECT COUNT(*) as count FROM referral_earnings WHERE from_user_id = ?',
             [tradingUserId]
         );
         if (existingBonus && existingBonus.count > 0) return; // Already paid
-
-        // Find referrer by referral code
-        const referrer = await queryOne<any>(
-            'SELECT id FROM users WHERE referral_code = ?',
-            [user.referred_by]
-        );
-
-        if (!referrer) return;
 
         // Get user's first deposit amount
         const firstDeposit = await queryOne<{ amount: number }>(
@@ -144,6 +159,14 @@ export async function processCommission(tradingUserId: number, tradeAmount: numb
             );
 
             if (!uplineUser) break;
+
+            // Check if upline has minimum deposit (500) to earn commission
+            const uplineHasMinDeposit = await hasMinimumDeposit(uplineUser.id);
+            if (!uplineHasMinDeposit) {
+                // Skip this upline but continue up the chain
+                currentUserId = uplineUser.id;
+                continue;
+            }
 
             const commission = Math.round(tradeAmount * rate * 100000000) / 100000000;
             if (commission <= 0) {

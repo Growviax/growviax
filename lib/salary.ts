@@ -4,6 +4,20 @@
  */
 import { query, queryOne } from '@/lib/db';
 
+const MIN_DEPOSIT_FOR_EARNINGS = 500; // Minimum total deposit required to earn IB salary
+
+// Helper: Check if user has minimum deposit to earn IB salary
+async function hasMinimumDeposit(userId: number): Promise<boolean> {
+    try {
+        const result = await queryOne<{ total: number }>(
+            `SELECT COALESCE(SUM(amount), 0) as total FROM transactions 
+             WHERE user_id = ? AND type = 'deposit' AND status = 'completed'`,
+            [userId]
+        );
+        return (Number(result?.total) || 0) >= MIN_DEPOSIT_FOR_EARNINGS;
+    } catch { return false; }
+}
+
 // Salary tiers definition
 const SALARY_TIERS = [
     { id: 1, minDirect: 5, minActive: 15, minDeposit: 30000, dailySalary: 800 },
@@ -118,6 +132,10 @@ export async function processDailySalaries(): Promise<{ processed: number; total
         }
 
         for (const pu of potentialUsers) {
+            // Check if user has minimum deposit (500) to earn IB salary
+            const userHasMinDeposit = await hasMinimumDeposit(pu.id);
+            if (!userHasMinDeposit) continue; // User hasn't deposited minimum 500 yet
+
             // Check if already credited today
             try {
                 const todayCheck = await queryOne<any>(
