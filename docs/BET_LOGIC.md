@@ -13,8 +13,13 @@ The GrowViax platform uses a **Smart Outcome Engine** to determine bet outcomes.
 - **Resolution**: Uses the Smart Outcome Engine (see Section 3)
 - **File**: `lib/outcome-engine.ts`
 
-### Multi-Bet (Multiple Users)
-- **Definition**: TWO or MORE users place bets in the same round
+### Same-Side Multi-User Bet
+- **Definition**: TWO or MORE users all bet the same direction (all UP or all DOWN)
+- **Resolution**: The Outcome Engine decides ONCE for the entire group using the total bet amount and the largest bettor's profile as representative. All users get the same result (all win or all lose). The round's `winning_side` is set consistently with the actual outcome.
+- **File**: `app/api/bids/resolve/route.ts`
+
+### Multi-Bet (Opposing Sides)
+- **Definition**: TWO or MORE users place bets on OPPOSITE sides in the same round
 - **Resolution**: Uses priority-based logic (see Section 2)
 - **File**: `app/api/bids/resolve/route.ts`
 

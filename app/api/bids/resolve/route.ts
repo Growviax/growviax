@@ -110,42 +110,79 @@ export async function POST() {
                 continue;
             }
 
-            // ═══════ SINGLE BET (one side only) → Check Admin Override First, then Smart Outcome Engine ═══════
+            // ═══════ ONE SIDE ONLY — all bets are on the same direction ═══════
             if (totalUp === 0 || totalDown === 0) {
                 const bids = await query<BidRow[]>('SELECT * FROM bids WHERE round_id = ? AND status = "pending"', [round.id]);
-                const winningSideForSingle = totalUp > 0 ? 'up' : 'down';
+                const bettingSide: 'up' | 'down' = totalUp > 0 ? 'up' : 'down';
 
-                for (const bid of bids) {
-                    const netAmount = Number(bid.amount);
-                    let decision: OutcomeDecision;
+                // Check admin manual override FIRST (applies to all bets in round)
+                if (tradeMode === 'manual' && (manualWinner === 'up' || manualWinner === 'down')) {
+                    const groupWins = bettingSide === manualWinner;
+                    const decision: OutcomeDecision = {
+                        shouldWin: groupWins,
+                        source: 'admin_override',
+                        reason: `Admin manual override: ${manualWinner} wins`,
+                        riskScore: 0,
+                        platformExposure: 0,
+                    };
+                    await setSetting('manual_winner', '');
 
-                    // Check admin manual override FIRST (applies to both single and multi bets)
-                    if (tradeMode === 'manual' && (manualWinner === 'up' || manualWinner === 'down')) {
-                        const adminWantsWin = bid.direction === manualWinner;
-                        decision = {
-                            shouldWin: adminWantsWin,
-                            source: 'admin_override',
-                            reason: `Admin manual override: ${manualWinner} wins`,
-                            riskScore: 0,
-                            platformExposure: 0,
-                        };
-                        // Clear manual winner after first use
-                        await setSetting('manual_winner', '');
-                    } else {
-                        // Use Smart Outcome Engine for each bid
-                        decision = await determineSingleBetOutcome(bid.id, bid.user_id, netAmount);
+                    for (const bid of bids) {
+                        if (groupWins) {
+                            await processBidWin(bid, round.id, decision);
+                        } else {
+                            await processBidLoss(bid, round.id, decision);
+                        }
+                        await processCommission(bid.user_id, Number(bid.amount));
                     }
+
+                    const winningSide = groupWins ? bettingSide : (bettingSide === 'up' ? 'down' : 'up');
+                    await query('UPDATE bid_rounds SET status = "resolved", winning_side = ? WHERE id = ?', [winningSide, round.id]);
+                    resolvedCount++;
+                    continue;
+                }
+
+                // TRUE SINGLE BET: exactly 1 bid → existing outcome engine per-bid
+                if (bids.length === 1) {
+                    const bid = bids[0];
+                    const netAmount = Number(bid.amount);
+                    const decision = await determineSingleBetOutcome(bid.id, bid.user_id, netAmount);
 
                     if (decision.shouldWin) {
                         await processBidWin(bid, round.id, decision);
                     } else {
                         await processBidLoss(bid, round.id, decision);
                     }
-
-                    // Process commission (referral bonus now triggered on deposit approval, not trade)
                     await processCommission(bid.user_id, netAmount);
+
+                    // winning_side is consistent with actual outcome
+                    const winningSide = decision.shouldWin ? bettingSide : (bettingSide === 'up' ? 'down' : 'up');
+                    await query('UPDATE bid_rounds SET status = "resolved", winning_side = ? WHERE id = ?', [winningSide, round.id]);
+                    resolvedCount++;
+                    continue;
                 }
-                await query('UPDATE bid_rounds SET status = "resolved", winning_side = ? WHERE id = ?', [winningSideForSingle, round.id]);
+
+                // SAME-SIDE MULTI-USER: multiple users all bet same direction
+                // Decide ONCE for the entire group using the largest bet as representative
+                const totalSideAmount = totalUp > 0 ? totalUp : totalDown;
+                const largestBid = bids.reduce((a, b) => Number(a.amount) > Number(b.amount) ? a : b);
+                const groupDecision = await determineSingleBetOutcome(largestBid.id, largestBid.user_id, totalSideAmount);
+
+                // Override the reason to indicate group decision
+                groupDecision.reason = `Same-side group bet (${bids.length} users, all ${bettingSide}): ${groupDecision.reason}`;
+
+                for (const bid of bids) {
+                    if (groupDecision.shouldWin) {
+                        await processBidWin(bid, round.id, groupDecision);
+                    } else {
+                        await processBidLoss(bid, round.id, groupDecision);
+                    }
+                    await processCommission(bid.user_id, Number(bid.amount));
+                }
+
+                // winning_side is consistent with actual outcome — no more contradiction
+                const winningSide = groupDecision.shouldWin ? bettingSide : (bettingSide === 'up' ? 'down' : 'up');
+                await query('UPDATE bid_rounds SET status = "resolved", winning_side = ? WHERE id = ?', [winningSide, round.id]);
                 resolvedCount++;
                 continue;
             }
