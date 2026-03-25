@@ -9,7 +9,7 @@ import toast from 'react-hot-toast';
 import { motion } from 'framer-motion';
 import { EnvelopeIcon, LockClosedIcon, EyeIcon, EyeSlashIcon, ChartBarIcon, BanknotesIcon } from '@heroicons/react/24/outline';
 
-export default function LoginPage() {
+export default function FDLoginPage() {
     const router = useRouter();
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
@@ -22,9 +22,9 @@ export default function LoginPage() {
 
         setLoading(true);
         try {
-            const res = await axios.post('/api/auth/login', { email, password });
+            const res = await axios.post('/api/fd/auth/login', { email, password });
             toast.success(res.data.message);
-            router.push('/dashboard');
+            router.push('/fd/home');
         } catch (error: any) {
             toast.error(error.response?.data?.error || 'Login failed');
         } finally { setLoading(false); }
@@ -46,21 +46,20 @@ export default function LoginPage() {
 
                     {/* Platform Selector */}
                     <div className="grid grid-cols-2 gap-2 p-1.5 rounded-2xl mb-8" style={{ background: 'rgba(255,255,255,0.03)' }}>
-                        <button className="py-3 rounded-xl text-sm font-bold bg-neon-green/12 text-neon-green flex items-center justify-center gap-2 transition-all">
+                        <Link href="/login" className="py-3 rounded-xl text-sm font-bold text-text-muted hover:text-text-secondary flex items-center justify-center gap-2 transition-all">
                             <ChartBarIcon className="w-4 h-4" /> Trading
-                        </button>
-                        <Link href="/fd/login" className="py-3 rounded-xl text-sm font-bold text-text-muted hover:text-text-secondary flex items-center justify-center gap-2 transition-all">
-                            <BanknotesIcon className="w-4 h-4" /> FD Investment
                         </Link>
+                        <button className="py-3 rounded-xl text-sm font-bold bg-neon-cyan/12 text-neon-cyan flex items-center justify-center gap-2 transition-all">
+                            <BanknotesIcon className="w-4 h-4" /> FD Investment
+                        </button>
                     </div>
 
                     <div className="text-center mb-8">
                         <h1 className="text-3xl font-extrabold tracking-tight mb-2">Welcome Back</h1>
-                        <p className="text-text-secondary text-sm">Sign in to continue trading</p>
+                        <p className="text-text-secondary text-sm">Sign in to your FD investment account</p>
                     </div>
 
                     <form onSubmit={handleLogin}>
-                        {/* Email */}
                         <div className="mb-6">
                             <label className="form-label">Email Address</label>
                             <div className="relative">
@@ -72,7 +71,6 @@ export default function LoginPage() {
                             </div>
                         </div>
 
-                        {/* Password */}
                         <div className="mb-6">
                             <label className="form-label">Password</label>
                             <div className="relative">
@@ -90,7 +88,7 @@ export default function LoginPage() {
                         </div>
 
                         <div className="flex justify-end mb-6">
-                            <Link href="/signup?forgot=true" className="text-sm text-neon-green hover:text-neon-green-dim transition-colors font-medium">
+                            <Link href="/fd/signup?forgot=true" className="text-sm text-neon-cyan hover:text-neon-cyan/80 transition-colors font-medium">
                                 Forgot Password?
                             </Link>
                         </div>
@@ -108,11 +106,12 @@ export default function LoginPage() {
                     <div className="divider" />
 
                     <p className="text-center text-sm text-text-secondary">
-                        Don&apos;t have an account?{' '}
-                        <Link href="/signup" className="text-neon-green hover:text-neon-green-dim font-semibold transition-colors">
+                        Don&apos;t have an FD account?{' '}
+                        <Link href="/fd/signup" className="text-neon-cyan hover:text-neon-cyan/80 font-semibold transition-colors">
                             Create Account
                         </Link>
                     </p>
+
                 </div>
 
                 <p className="text-center text-xs text-text-muted mt-6">

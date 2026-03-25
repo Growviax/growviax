@@ -42,3 +42,14 @@ export function generateReferralCode(): string {
 export function generateOTP(): string {
     return Math.floor(100000 + Math.random() * 900000).toString();
 }
+
+// FD Platform token
+export interface FDJWTPayload {
+    fdUserId: number;
+    email: string;
+    role: string;
+}
+
+export function signFDToken(payload: FDJWTPayload): string {
+    return jwt.sign(payload, JWT_SECRET, { expiresIn: '7d' });
+}

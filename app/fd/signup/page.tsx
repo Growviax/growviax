@@ -35,7 +35,7 @@ const LoadingSpinner = () => (
     </svg>
 );
 
-function SignupContent() {
+function FDSignupContent() {
     const router = useRouter();
     const searchParams = useSearchParams();
     const isForgot = searchParams.get('forgot') === 'true';
@@ -45,7 +45,6 @@ function SignupContent() {
     const [showPw, setShowPw] = useState(false);
     const [showCpw, setShowCpw] = useState(false);
 
-    // Form fields
     const [inviteCode, setInviteCode] = useState('');
     const [name, setName] = useState('');
     const [phone, setPhone] = useState('');
@@ -54,8 +53,6 @@ function SignupContent() {
     const [confirmPassword, setConfirmPassword] = useState('');
     const [otp, setOtp] = useState('');
     const [newPassword, setNewPassword] = useState('');
-
-    // Inline validation errors
     const [errors, setErrors] = useState<Record<string, string>>({});
 
     const validate = (): boolean => {
@@ -73,7 +70,7 @@ function SignupContent() {
         if (!validate()) return;
         setLoading(true);
         try {
-            await axios.post('/api/auth/send-otp', { email });
+            await axios.post('/api/fd/auth/send-otp', { email });
             toast.success('OTP sent to your email');
             setStep('otp');
         } catch (error: any) {
@@ -87,11 +84,11 @@ function SignupContent() {
 
         setLoading(true);
         try {
-            const res = await axios.post('/api/auth/signup', {
+            const res = await axios.post('/api/fd/auth/signup', {
                 inviteCode: inviteCode || undefined, name, phone, email, otp, password, confirmPassword,
             });
             toast.success(res.data.message);
-            router.push('/dashboard');
+            router.push('/fd/home');
         } catch (error: any) {
             toast.error(error.response?.data?.error || 'Signup failed');
         } finally { setLoading(false); }
@@ -102,7 +99,7 @@ function SignupContent() {
         if (!email.trim() || !/\S+@\S+\.\S+/.test(email)) { toast.error('Enter a valid email'); return; }
         setLoading(true);
         try {
-            await axios.post('/api/auth/forgot-password', { email, step: 'request' });
+            await axios.post('/api/fd/auth/forgot-password', { email, step: 'request' });
             toast.success('OTP sent if email exists');
             setStep('reset');
         } catch (error: any) {
@@ -116,9 +113,9 @@ function SignupContent() {
         if (!newPassword || newPassword.length < 6) { toast.error('Password must be at least 6 characters'); return; }
         setLoading(true);
         try {
-            await axios.post('/api/auth/forgot-password', { email, otp, newPassword, step: 'reset' });
+            await axios.post('/api/fd/auth/forgot-password', { email, otp, newPassword, step: 'reset' });
             toast.success('Password reset successfully');
-            router.push('/login');
+            router.push('/fd/login');
         } catch (error: any) {
             toast.error(error.response?.data?.error || 'Reset failed');
         } finally { setLoading(false); }
@@ -133,23 +130,21 @@ function SignupContent() {
                 className="w-full max-w-[440px]"
             >
                 <div className="glass-card p-8 sm:p-10">
-                    {/* Logo */}
                     <div className="flex justify-center mb-6">
                         <Image src="/img/logo.png" alt="GrowViax" width={180} height={54} priority className="h-14 w-auto" />
                     </div>
 
                     {/* Platform Selector */}
                     <div className="grid grid-cols-2 gap-2 p-1.5 rounded-2xl mb-8" style={{ background: 'rgba(255,255,255,0.03)' }}>
-                        <button className="py-3 rounded-xl text-sm font-bold bg-neon-green/12 text-neon-green flex items-center justify-center gap-2 transition-all">
+                        <Link href="/signup" className="py-3 rounded-xl text-sm font-bold text-text-muted hover:text-text-secondary flex items-center justify-center gap-2 transition-all">
                             <ChartBarIcon className="w-4 h-4" /> Trading
-                        </button>
-                        <Link href="/fd/signup" className="py-3 rounded-xl text-sm font-bold text-text-muted hover:text-text-secondary flex items-center justify-center gap-2 transition-all">
-                            <BanknotesIcon className="w-4 h-4" /> FD Investment
                         </Link>
+                        <button className="py-3 rounded-xl text-sm font-bold bg-neon-cyan/12 text-neon-cyan flex items-center justify-center gap-2 transition-all">
+                            <BanknotesIcon className="w-4 h-4" /> FD Investment
+                        </button>
                     </div>
 
                     <AnimatePresence mode="wait">
-                        {/* ---- Forgot Password: Request OTP ---- */}
                         {step === 'forgot' && (
                             <motion.div key="forgot" variants={slideVariants} initial="enter" animate="center" exit="exit" transition={{ duration: 0.35 }}>
                                 <div className="text-center mb-8">
@@ -165,18 +160,17 @@ function SignupContent() {
                                     </button>
                                 </form>
                                 <div className="divider" />
-                                <Link href="/login" className="flex items-center justify-center gap-2 text-sm text-text-secondary hover:text-neon-green transition-colors">
+                                <Link href="/fd/login" className="flex items-center justify-center gap-2 text-sm text-text-secondary hover:text-neon-cyan transition-colors">
                                     <ArrowLeftIcon className="w-4 h-4" /> Back to Login
                                 </Link>
                             </motion.div>
                         )}
 
-                        {/* ---- Forgot Password: Reset ---- */}
                         {step === 'reset' && (
                             <motion.div key="reset" variants={slideVariants} initial="enter" animate="center" exit="exit" transition={{ duration: 0.35 }}>
                                 <div className="text-center mb-8">
                                     <h1 className="text-2xl font-extrabold tracking-tight mb-2">Reset Password</h1>
-                                    <p className="text-text-secondary text-sm">Enter the code sent to <span className="text-neon-green font-medium">{email}</span></p>
+                                    <p className="text-text-secondary text-sm">Enter the code sent to <span className="text-neon-cyan font-medium">{email}</span></p>
                                 </div>
                                 <form onSubmit={handleResetPassword}>
                                     <div className="mb-5 mt-2">
@@ -194,15 +188,13 @@ function SignupContent() {
                             </motion.div>
                         )}
 
-                        {/* ---- Signup Form ---- */}
                         {step === 'form' && (
                             <motion.div key="form" variants={slideVariants} initial="enter" animate="center" exit="exit" transition={{ duration: 0.35 }}>
                                 <div className="text-center mb-8">
-                                    <h1 className="text-2xl font-extrabold tracking-tight mb-2">Create Account</h1>
-                                    <p className="text-text-secondary text-sm">Join GrowViax and start trading</p>
+                                    <h1 className="text-2xl font-extrabold tracking-tight mb-2">Create FD Account</h1>
+                                    <p className="text-text-secondary text-sm">Start investing with GrowViax FD</p>
                                 </div>
                                 <form onSubmit={(e) => { e.preventDefault(); sendOTP(); }}>
-                                    {/* Invite Code - Optional */}
                                     <InputField icon={KeyIcon} label="Invite Code (Optional)">
                                         <input type="text" value={inviteCode} onChange={(e) => setInviteCode(e.target.value)}
                                             placeholder="Enter referral code" className="glass-input pl-12" />
@@ -249,21 +241,20 @@ function SignupContent() {
                                 </form>
                                 <div className="divider" />
                                 <p className="text-center text-sm text-text-secondary">
-                                    Already have an account?{' '}
-                                    <Link href="/login" className="text-neon-green hover:text-neon-green-dim font-semibold transition-colors">Sign In</Link>
+                                    Already have an FD account?{' '}
+                                    <Link href="/fd/login" className="text-neon-cyan hover:text-neon-cyan/80 font-semibold transition-colors">Sign In</Link>
                                 </p>
                             </motion.div>
                         )}
 
-                        {/* ---- OTP Verification ---- */}
                         {step === 'otp' && (
                             <motion.div key="otp" variants={slideVariants} initial="enter" animate="center" exit="exit" transition={{ duration: 0.35 }}>
                                 <div className="text-center mb-8">
-                                    <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-neon-green/10 flex items-center justify-center">
-                                        <EnvelopeIcon className="w-8 h-8 text-neon-green" />
+                                    <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-neon-cyan/10 flex items-center justify-center">
+                                        <EnvelopeIcon className="w-8 h-8 text-neon-cyan" />
                                     </div>
                                     <h1 className="text-2xl font-extrabold tracking-tight mb-2">Verify Email</h1>
-                                    <p className="text-text-secondary text-sm">Enter 6-digit code sent to <br /><span className="text-neon-green font-medium">{email}</span></p>
+                                    <p className="text-text-secondary text-sm">Enter 6-digit code sent to <br /><span className="text-neon-cyan font-medium">{email}</span></p>
                                 </div>
                                 <form onSubmit={handleSignup} className="space-y-6">
                                     <input
@@ -281,7 +272,7 @@ function SignupContent() {
                                     <button onClick={() => setStep('form')} className="flex items-center gap-1 text-sm text-text-secondary hover:text-text-primary transition-colors">
                                         <ArrowLeftIcon className="w-4 h-4" /> Go Back
                                     </button>
-                                    <button onClick={sendOTP} disabled={loading} className="text-sm text-neon-green hover:text-neon-green-dim font-medium transition-colors">
+                                    <button onClick={sendOTP} disabled={loading} className="text-sm text-neon-cyan hover:text-neon-cyan/80 font-medium transition-colors">
                                         Resend OTP
                                     </button>
                                 </div>
@@ -298,10 +289,10 @@ function SignupContent() {
     );
 }
 
-export default function SignupPage() {
+export default function FDSignupPage() {
     return (
         <Suspense fallback={<div className="min-h-screen flex items-center justify-center"><div className="skeleton h-[600px] w-full max-w-[440px] mx-4" /></div>}>
-            <SignupContent />
+            <FDSignupContent />
         </Suspense>
     );
 }

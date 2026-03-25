@@ -2,13 +2,13 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { jwtVerify } from 'jose';
 
 const publicPaths = ['/login', '/signup', '/api/auth/login', '/api/auth/signup', '/api/auth/send-otp', '/api/auth/verify-otp', '/api/auth/forgot-password', '/api/admin/migrate'];
+const fdPublicPaths = ['/fd/login', '/fd/signup', '/api/fd/auth/login', '/api/fd/auth/signup', '/api/fd/auth/send-otp', '/api/fd/auth/forgot-password'];
 
 export async function middleware(request: NextRequest) {
     const { pathname } = request.nextUrl;
 
-    // Allow public paths and static assets
+    // Allow static assets
     if (
-        publicPaths.some((path) => pathname.startsWith(path)) ||
         pathname.startsWith('/_next') ||
         pathname.startsWith('/img') ||
         pathname === '/favicon.ico' ||
@@ -18,13 +18,69 @@ export async function middleware(request: NextRequest) {
         return NextResponse.next();
     }
 
-    const token = request.cookies.get('token')?.value;
+    // Allow trading public paths
+    if (publicPaths.some((path) => pathname.startsWith(path))) {
+        return NextResponse.next();
+    }
 
-    // Root path redirect
+    // Allow FD public paths
+    if (fdPublicPaths.some((path) => pathname.startsWith(path))) {
+        return NextResponse.next();
+    }
+
+    const token = request.cookies.get('token')?.value;
+    const fdToken = request.cookies.get('fd_token')?.value;
+    const secret = new TextEncoder().encode(process.env.JWT_SECRET || 'growviax_secret');
+
+    // ═══════════ FD API ROUTES ═══════════
+    if (pathname.startsWith('/api/fd/')) {
+        if (!fdToken) {
+            return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+        }
+        try {
+            await jwtVerify(fdToken, secret);
+            return NextResponse.next();
+        } catch {
+            return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
+        }
+    }
+
+    // ═══════════ FD ADMIN API ROUTES ═══════════
+    if (pathname.startsWith('/api/admin/fd/')) {
+        if (!token) {
+            return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+        }
+        try {
+            const { payload } = await jwtVerify(token, secret);
+            if ((payload as any).role !== 'admin') {
+                return NextResponse.json({ error: 'Admin access required' }, { status: 403 });
+            }
+            return NextResponse.next();
+        } catch {
+            return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
+        }
+    }
+
+    // ═══════════ FD DASHBOARD ROUTES ═══════════
+    if (pathname.startsWith('/fd/')) {
+        // FD pages need fd_token
+        if (!fdToken) {
+            return NextResponse.redirect(new URL('/fd/login', request.url));
+        }
+        try {
+            await jwtVerify(fdToken, secret);
+            return NextResponse.next();
+        } catch {
+            const response = NextResponse.redirect(new URL('/fd/login', request.url));
+            response.cookies.delete('fd_token');
+            return response;
+        }
+    }
+
+    // ═══════════ ROOT REDIRECT ═══════════
     if (pathname === '/') {
         if (token) {
             try {
-                const secret = new TextEncoder().encode(process.env.JWT_SECRET || 'growviax_secret');
                 await jwtVerify(token, secret);
                 return NextResponse.redirect(new URL('/home', request.url));
             } catch {
@@ -34,13 +90,12 @@ export async function middleware(request: NextRequest) {
         return NextResponse.redirect(new URL('/login', request.url));
     }
 
-    // Protect API routes (except public ones)
+    // ═══════════ TRADING API ROUTES ═══════════
     if (pathname.startsWith('/api/')) {
         if (!token) {
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
         }
         try {
-            const secret = new TextEncoder().encode(process.env.JWT_SECRET || 'growviax_secret');
             const { payload } = await jwtVerify(token, secret);
 
             // Admin API protection
@@ -57,13 +112,12 @@ export async function middleware(request: NextRequest) {
         }
     }
 
-    // Protect dashboard routes
+    // ═══════════ TRADING DASHBOARD ROUTES ═══════════
     if (!token) {
         return NextResponse.redirect(new URL('/login', request.url));
     }
 
     try {
-        const secret = new TextEncoder().encode(process.env.JWT_SECRET || 'growviax_secret');
         const { payload } = await jwtVerify(token, secret);
 
         // Admin page protection

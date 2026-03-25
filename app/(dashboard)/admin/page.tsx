@@ -14,10 +14,13 @@ import {
 } from '@heroicons/react/24/outline';
 import clsx from 'clsx';
 import dayjs from 'dayjs';
+import FDAdminPanel from '@/components/FDAdminPanel';
 
 type AdminTab = 'users' | 'deposits' | 'withdrawals' | 'support' | 'trading' | 'settings' | 'upi' | 'referral';
+type Platform = 'trading' | 'fd';
 
 export default function AdminPage() {
+    const [platform, setPlatform] = useState<Platform>('trading');
     const [tab, setTab] = useState<AdminTab>('users');
     const [loading, setLoading] = useState(true);
 
@@ -360,6 +363,26 @@ export default function AdminPage() {
                     </button>
                 </div>
             </div>
+
+            {/* ═══ PLATFORM SELECTOR ═══ */}
+            <div className="grid grid-cols-2 gap-2 p-1.5 rounded-2xl" style={{ background: 'rgba(255,255,255,0.02)' }}>
+                <button onClick={() => setPlatform('trading')}
+                    className={clsx('py-3 rounded-xl text-sm font-bold transition-all flex items-center justify-center gap-2',
+                        platform === 'trading' ? 'bg-neon-green/12 text-neon-green' : 'text-text-muted hover:text-text-secondary')}>
+                    <ChartBarIcon className="w-4 h-4" /> Trading Platform
+                </button>
+                <button onClick={() => setPlatform('fd')}
+                    className={clsx('py-3 rounded-xl text-sm font-bold transition-all flex items-center justify-center gap-2',
+                        platform === 'fd' ? 'bg-neon-cyan/12 text-neon-cyan' : 'text-text-muted hover:text-text-secondary')}>
+                    <BanknotesIcon className="w-4 h-4" /> FD Platform
+                </button>
+            </div>
+
+            {/* FD Platform Admin */}
+            {platform === 'fd' && <FDAdminPanel />}
+
+            {/* Trading Platform Admin */}
+            {platform === 'trading' && (<>
 
             {/* Tabs */}
             <div
@@ -1254,6 +1277,7 @@ export default function AdminPage() {
                     </motion.div>
                 )}
             </AnimatePresence>
+            </>)}
         </div>
     );
 }
