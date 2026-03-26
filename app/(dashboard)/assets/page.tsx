@@ -269,7 +269,7 @@ function AssetsContent() {
         </div>
     );
 
-    const tabs = ['deposit', 'withdraw', 'history'] as const;
+    const tabs = ['deposit', 'withdraw'] as const;
 
     return (
         <div className="space-y-5">
@@ -836,9 +836,9 @@ function AssetsContent() {
                 </motion.div>
             )}
 
-            {/* ═══════════ HISTORY TAB ═══════════ */}
-            {tab === 'history' && (
-                <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="space-y-4">
+            {/* ═══════════ DEPOSIT & WITHDRAWAL HISTORY (Always Visible) ═══════════ */}
+            <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="space-y-4">
+                <h2 className="text-lg font-bold tracking-tight mt-2">Transaction History</h2>
                     {/* History Sub-tabs */}
                     <div className="flex gap-1.5 p-1 rounded-xl" style={{ background: 'rgba(255,255,255,0.03)' }}>
                         {(['deposit', 'withdrawal'] as const).map((ht) => (
@@ -961,8 +961,7 @@ function AssetsContent() {
                             </button>
                         </div>
                     )}
-                </motion.div>
-            )}
+            </motion.div>
         </div>
     );
 }

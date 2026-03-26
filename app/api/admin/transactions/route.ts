@@ -73,38 +73,25 @@ export async function PATCH(request: Request) {
         }
 
         if (action === 'approve') {
-            // Deduct balance now (was deferred from withdraw request)
-            const withdrawAmount = parseFloat(tx.amount);
-            const currentBalance = parseFloat(txUser.wallet_balance);
-            
-            if (currentBalance < withdrawAmount) {
-                return NextResponse.json({ 
-                    error: `User has insufficient balance. Required: ₹${withdrawAmount.toFixed(2)}, Available: ₹${currentBalance.toFixed(2)}` 
-                }, { status: 400 });
-            }
-
-            // Deduct INR amount from wallet (already converted from USD if USDT withdrawal)
-            const result = await query('UPDATE users SET wallet_balance = wallet_balance - ? WHERE id = ? AND wallet_balance >= ?', [withdrawAmount, tx.user_id, withdrawAmount]);
-            
-            // Verify the update was successful
-            if (!result || (result as any).affectedRows === 0) {
-                return NextResponse.json({ error: 'Failed to deduct balance. User may have insufficient funds.' }, { status: 400 });
-            }
-
+            // Balance was already deducted when withdrawal was requested
+            // Just update the transaction status to completed
             await query('UPDATE transactions SET status = "completed", tx_hash = ?, notes = "Withdrawal approved by admin" WHERE id = ?', [txHash || null, transactionId]);
 
             // Send email
+            const withdrawAmount = parseFloat(tx.amount);
             await sendWithdrawalApprovedEmail(txUser.email, withdrawAmount.toFixed(2));
 
-            return NextResponse.json({ message: `Withdrawal approved. ₹${withdrawAmount.toFixed(2)} deducted from user wallet.` });
+            return NextResponse.json({ message: `Withdrawal approved. ₹${withdrawAmount.toFixed(2)} (already deducted from wallet).` });
         } else {
-            // Reject - no balance deduction needed (was deferred)
+            // Reject - refund the amount back to user's wallet (was deducted at request time)
+            const refundAmount = parseFloat(tx.amount);
+            await query('UPDATE users SET wallet_balance = wallet_balance + ? WHERE id = ?', [refundAmount, tx.user_id]);
             await query('UPDATE transactions SET status = "rejected", notes = ? WHERE id = ?', [reason || 'Rejected by admin', transactionId]);
 
             // Send rejection email
-            await sendWithdrawalRejectedEmail(txUser.email, parseFloat(tx.amount).toFixed(2), reason || 'No reason provided');
+            await sendWithdrawalRejectedEmail(txUser.email, refundAmount.toFixed(2), reason || 'No reason provided');
 
-            return NextResponse.json({ message: 'Withdrawal rejected' });
+            return NextResponse.json({ message: `Withdrawal rejected. ₹${refundAmount.toFixed(2)} refunded to user wallet.` });
         }
     } catch (error: any) {
         console.error('Admin transaction action error:', error);

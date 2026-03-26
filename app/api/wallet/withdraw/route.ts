@@ -81,7 +81,17 @@ export async function POST(request: Request) {
             }, { status: 400 });
         }
 
-        // Record transaction as pending (balance NOT deducted until admin approval)
+        // Deduct balance immediately so user cannot bet with pending withdrawal amount
+        const deductResult = await query(
+            'UPDATE users SET wallet_balance = wallet_balance - ? WHERE id = ? AND wallet_balance >= ?',
+            [inrAmount, userId, inrAmount]
+        );
+
+        if (!deductResult || (deductResult as any).affectedRows === 0) {
+            return NextResponse.json({ error: 'Failed to deduct balance. Insufficient funds.' }, { status: 400 });
+        }
+
+        // Record transaction as pending (balance already deducted)
         const address = withdrawMethod === 'usdt' ? walletAddress : upiId;
         const network = withdrawMethod === 'usdt' ? 'BEP20' : 'UPI';
         const notes = originalUsdAmount 

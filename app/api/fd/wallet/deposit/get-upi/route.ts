@@ -7,7 +7,7 @@ export async function GET() {
         const user = await getCurrentFDUser();
         if (!user) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
 
-        const upi = await queryOne<any>('SELECT upi_id, display_name FROM upi_accounts WHERE is_active = 1 ORDER BY RAND() LIMIT 1');
+        const upi = await queryOne<any>('SELECT upi_id, display_name FROM fd_upi_accounts WHERE is_active = 1 ORDER BY RAND() LIMIT 1');
         if (!upi) {
             return NextResponse.json({ error: 'No active UPI accounts available' }, { status: 404 });
         }

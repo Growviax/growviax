@@ -1,10 +1,9 @@
 import { NextResponse } from 'next/server';
 import { query, queryOne } from '@/lib/db';
-import { hashPassword, generateReferralCode, signFDToken } from '@/lib/auth';
+import { hashPassword, signFDToken } from '@/lib/auth';
 import { z } from 'zod';
 
 const signupSchema = z.object({
-    inviteCode: z.string().optional(),
     name: z.string().min(2, 'Name must be at least 2 characters'),
     phone: z.string().min(10, 'Invalid phone number'),
     email: z.string().email('Invalid email'),
@@ -25,20 +24,7 @@ export async function POST(request: Request) {
             return NextResponse.json({ error: parsed.error.issues[0].message }, { status: 400 });
         }
 
-        const { inviteCode, name, phone, email, otp, password } = parsed.data;
-
-        // Verify invite code if provided
-        let referredBy: string | null = null;
-        if (inviteCode && inviteCode.trim()) {
-            const referrer = await queryOne<any>(
-                'SELECT id, referral_code FROM fd_users WHERE referral_code = ?',
-                [inviteCode.trim()]
-            );
-            if (!referrer) {
-                return NextResponse.json({ error: 'Invalid invite code' }, { status: 400 });
-            }
-            referredBy = inviteCode.trim();
-        }
+        const { name, phone, email, otp, password } = parsed.data;
 
         // Check if FD user already exists
         const existingUser = await queryOne<any>(
@@ -63,13 +49,12 @@ export async function POST(request: Request) {
         // Mark OTP as used
         await query('UPDATE otp_codes SET is_used = 1 WHERE id = ?', [otpRecord.id]);
 
-        // Create FD user
+        // Create FD user (no referral code or referred_by)
         const passwordHash = await hashPassword(password);
-        const referralCode = generateReferralCode();
 
         const result = await query<any>(
-            'INSERT INTO fd_users (name, email, phone, password_hash, referral_code, referred_by, is_verified) VALUES (?, ?, ?, ?, ?, ?, 1)',
-            [name, email, phone, passwordHash, referralCode, referredBy]
+            'INSERT INTO fd_users (name, email, phone, password_hash, referral_code, is_verified) VALUES (?, ?, ?, ?, ?, 1)',
+            [name, email, phone, passwordHash, '']
         );
 
         const fdUserId = result.insertId;
@@ -79,7 +64,7 @@ export async function POST(request: Request) {
 
         const response = NextResponse.json({
             message: 'FD Account created successfully',
-            user: { id: fdUserId, name, email, referralCode },
+            user: { id: fdUserId, name, email },
         });
 
         response.cookies.set('fd_token', token, {

@@ -8,12 +8,13 @@ import {
     UsersIcon, ArrowDownTrayIcon, ArrowUpTrayIcon, BanknotesIcon,
     SparklesIcon, AdjustmentsHorizontalIcon, LifebuoyIcon,
     MagnifyingGlassIcon, CheckCircleIcon, XCircleIcon, ClockIcon,
-    ChevronLeftIcon, ChevronRightIcon,
+    ChevronLeftIcon, ChevronRightIcon, WalletIcon, CreditCardIcon,
+    TrashIcon, PlusIcon,
 } from '@heroicons/react/24/outline';
 import clsx from 'clsx';
 import dayjs from 'dayjs';
 
-type FDTab = 'fd_users' | 'fd_deposits' | 'fd_withdrawals' | 'fd_plans' | 'fd_profit' | 'fd_settings';
+type FDTab = 'fd_users' | 'fd_deposits' | 'fd_withdrawals' | 'fd_plans' | 'fd_profit' | 'fd_settings' | 'fd_upi' | 'fd_wallets';
 
 export default function FDAdminPanel() {
     const [tab, setTab] = useState<FDTab>('fd_users');
@@ -52,6 +53,17 @@ export default function FDAdminPanel() {
     const [showAdjust, setShowAdjust] = useState(false);
     const [adjustUserId, setAdjustUserId] = useState(0);
     const [adjustAmount, setAdjustAmount] = useState('');
+
+    /* FD UPI */
+    const [fdUpiAccounts, setFdUpiAccounts] = useState<any[]>([]);
+    const [newFdUpi, setNewFdUpi] = useState('');
+    const [newFdUpiName, setNewFdUpiName] = useState('');
+
+    /* FD Wallets */
+    const [fdWallets, setFdWallets] = useState<any[]>([]);
+    const [newWalletAddr, setNewWalletAddr] = useState('');
+    const [newWalletQr, setNewWalletQr] = useState('');
+    const [newWalletName, setNewWalletName] = useState('');
 
     const fetchFdUsers = useCallback(async () => {
         try {
@@ -104,7 +116,23 @@ export default function FDAdminPanel() {
         else if (tab === 'fd_plans') fetchFdPlans();
         else if (tab === 'fd_profit') fetchProfit();
         else if (tab === 'fd_settings') fetchSettings();
+        else if (tab === 'fd_upi') fetchFdUpi();
+        else if (tab === 'fd_wallets') fetchFdWallets();
     }, [tab, fetchFdUsers, fetchFdDeposits, fetchFdWithdrawals, fetchFdPlans, fetchProfit, fetchSettings]);
+
+    const fetchFdUpi = async () => {
+        try {
+            const res = await axios.get('/api/admin/fd/upi');
+            setFdUpiAccounts(res.data.accounts || []);
+        } catch { } finally { setLoading(false); }
+    };
+
+    const fetchFdWallets = async () => {
+        try {
+            const res = await axios.get('/api/admin/fd/wallets');
+            setFdWallets(res.data.wallets || []);
+        } catch { } finally { setLoading(false); }
+    };
 
     const handleUserAction = async (userId: number, action: string, value: any) => {
         setProcessing(true);
@@ -173,6 +201,8 @@ export default function FDAdminPanel() {
         { key: 'fd_plans', label: 'FD Plans', icon: BanknotesIcon },
         { key: 'fd_profit', label: 'Profit Sharing', icon: SparklesIcon },
         { key: 'fd_settings', label: 'Settings', icon: AdjustmentsHorizontalIcon },
+        { key: 'fd_upi', label: 'FD UPI', icon: CreditCardIcon },
+        { key: 'fd_wallets', label: 'FD Wallets', icon: WalletIcon },
     ];
 
     return (
@@ -212,8 +242,7 @@ export default function FDAdminPanel() {
                                     </div>
                                 </div>
                                 <div className="flex flex-wrap gap-1.5 text-[10px]">
-                                    <span className="text-text-muted">Referral: {u.referral_code}</span>
-                                    <span className="text-text-muted">• Joined: {dayjs(u.created_at).format('MMM D, YY')}</span>
+                                    <span className="text-text-muted">Joined: {dayjs(u.created_at).format('MMM D, YY')}</span>
                                     {u.profit_sharing_enabled ? <span className="text-neon-purple">• Profit Sharing ✓</span> : <span className="text-neon-red">• Sharing Disabled</span>}
                                 </div>
                                 <div className="flex gap-2 mt-3">
@@ -503,6 +532,131 @@ export default function FDAdminPanel() {
                         </div>
                     </div>
                 </div>
+            )}
+
+            {/* ═══ FD UPI MANAGEMENT ═══ */}
+            {tab === 'fd_upi' && (
+                <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
+                    {/* Add new UPI */}
+                    <div className="glass-card space-y-3">
+                        <h3 className="text-sm font-bold flex items-center gap-2">
+                            <PlusIcon className="w-4 h-4 text-neon-green" /> Add FD UPI Account
+                        </h3>
+                        <input type="text" value={newFdUpi} onChange={(e) => setNewFdUpi(e.target.value)}
+                            placeholder="UPI ID (e.g. name@upi)" className="glass-input text-sm" />
+                        <input type="text" value={newFdUpiName} onChange={(e) => setNewFdUpiName(e.target.value)}
+                            placeholder="Display Name" className="glass-input text-sm" />
+                        <button onClick={async () => {
+                            if (!newFdUpi.includes('@')) return toast.error('Invalid UPI ID');
+                            try {
+                                await axios.post('/api/admin/fd/upi', { upiId: newFdUpi, displayName: newFdUpiName });
+                                toast.success('FD UPI added');
+                                setNewFdUpi(''); setNewFdUpiName('');
+                                fetchFdUpi();
+                            } catch (e: any) { toast.error(e.response?.data?.error || 'Failed'); }
+                        }} className="btn-glow w-full text-sm">Add UPI Account</button>
+                    </div>
+
+                    {/* List existing */}
+                    <div className="space-y-2">
+                        {fdUpiAccounts.map((u) => (
+                            <div key={u.id} className="inner-card flex items-center justify-between">
+                                <div>
+                                    <p className="text-sm font-bold">{u.upi_id}</p>
+                                    <p className="text-[10px] text-text-muted">{u.display_name}</p>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <button onClick={async () => {
+                                        try {
+                                            await axios.patch('/api/admin/fd/upi', { id: u.id, isActive: !u.is_active });
+                                            toast.success(u.is_active ? 'Deactivated' : 'Activated');
+                                            fetchFdUpi();
+                                        } catch { toast.error('Failed'); }
+                                    }} className={clsx('px-3 py-1.5 rounded-lg text-[11px] font-semibold',
+                                        u.is_active ? 'bg-neon-red/10 text-neon-red' : 'bg-neon-green/10 text-neon-green')}>
+                                        {u.is_active ? 'Deactivate' : 'Activate'}
+                                    </button>
+                                    <button onClick={async () => {
+                                        if (!confirm('Delete this UPI?')) return;
+                                        try {
+                                            await axios.delete(`/api/admin/fd/upi?id=${u.id}`);
+                                            toast.success('Deleted');
+                                            fetchFdUpi();
+                                        } catch { toast.error('Failed'); }
+                                    }} className="p-1.5 rounded-lg bg-neon-red/10 text-neon-red">
+                                        <TrashIcon className="w-4 h-4" />
+                                    </button>
+                                </div>
+                            </div>
+                        ))}
+                        {fdUpiAccounts.length === 0 && <p className="text-sm text-text-muted text-center py-8">No FD UPI accounts. Add one above.</p>}
+                    </div>
+                </motion.div>
+            )}
+
+            {/* ═══ FD WALLETS MANAGEMENT ═══ */}
+            {tab === 'fd_wallets' && (
+                <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
+                    {/* Add new wallet */}
+                    <div className="glass-card space-y-3">
+                        <h3 className="text-sm font-bold flex items-center gap-2">
+                            <PlusIcon className="w-4 h-4 text-neon-cyan" /> Add FD USDT Wallet
+                        </h3>
+                        <input type="text" value={newWalletAddr} onChange={(e) => setNewWalletAddr(e.target.value)}
+                            placeholder="Wallet Address (0x...)" className="glass-input text-sm font-mono" />
+                        <input type="text" value={newWalletQr} onChange={(e) => setNewWalletQr(e.target.value)}
+                            placeholder="QR Image Path (e.g. /img/qr1.jpeg)" className="glass-input text-sm" />
+                        <input type="text" value={newWalletName} onChange={(e) => setNewWalletName(e.target.value)}
+                            placeholder="Display Name" className="glass-input text-sm" />
+                        <button onClick={async () => {
+                            if (!newWalletAddr.startsWith('0x') || newWalletAddr.length !== 42) return toast.error('Invalid wallet address');
+                            try {
+                                await axios.post('/api/admin/fd/wallets', { walletAddress: newWalletAddr, qrImage: newWalletQr, displayName: newWalletName });
+                                toast.success('FD Wallet added');
+                                setNewWalletAddr(''); setNewWalletQr(''); setNewWalletName('');
+                                fetchFdWallets();
+                            } catch (e: any) { toast.error(e.response?.data?.error || 'Failed'); }
+                        }} className="btn-glow w-full text-sm">Add Wallet</button>
+                    </div>
+
+                    {/* List existing */}
+                    <div className="space-y-2">
+                        {fdWallets.map((w) => (
+                            <div key={w.id} className="inner-card">
+                                <div className="flex items-center justify-between mb-2">
+                                    <div className="min-w-0">
+                                        <p className="text-sm font-bold truncate">{w.display_name || 'Wallet'}</p>
+                                        <p className="text-[10px] text-text-muted font-mono truncate">{w.wallet_address}</p>
+                                    </div>
+                                    <div className="flex items-center gap-2 shrink-0">
+                                        <button onClick={async () => {
+                                            try {
+                                                await axios.patch('/api/admin/fd/wallets', { id: w.id, isActive: !w.is_active });
+                                                toast.success(w.is_active ? 'Deactivated' : 'Activated');
+                                                fetchFdWallets();
+                                            } catch { toast.error('Failed'); }
+                                        }} className={clsx('px-3 py-1.5 rounded-lg text-[11px] font-semibold',
+                                            w.is_active ? 'bg-neon-red/10 text-neon-red' : 'bg-neon-green/10 text-neon-green')}>
+                                            {w.is_active ? 'Deactivate' : 'Activate'}
+                                        </button>
+                                        <button onClick={async () => {
+                                            if (!confirm('Delete this wallet?')) return;
+                                            try {
+                                                await axios.delete(`/api/admin/fd/wallets?id=${w.id}`);
+                                                toast.success('Deleted');
+                                                fetchFdWallets();
+                                            } catch { toast.error('Failed'); }
+                                        }} className="p-1.5 rounded-lg bg-neon-red/10 text-neon-red">
+                                            <TrashIcon className="w-4 h-4" />
+                                        </button>
+                                    </div>
+                                </div>
+                                {w.qr_image && <p className="text-[10px] text-text-muted">QR: {w.qr_image}</p>}
+                            </div>
+                        ))}
+                        {fdWallets.length === 0 && <p className="text-sm text-text-muted text-center py-8">No FD wallets. Add one above.</p>}
+                    </div>
+                </motion.div>
             )}
         </div>
     );

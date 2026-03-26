@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Host: localhost
--- Generation Time: Mar 25, 2026 at 05:30 PM
+-- Generation Time: Mar 26, 2026 at 05:11 PM
 -- Server version: 10.4.28-MariaDB
 -- PHP Version: 8.2.4
 
@@ -271,6 +271,207 @@ INSERT INTO `deposit_requests` (`id`, `user_id`, `deposit_type`, `amount`, `wall
 (3, 2, 'usdt', 10.00000000, '0xeb22c11a8f4a9028f7103cc303b43c4b0e35d476', '0x8f2a559490c7c8a5d9c3a0b5e3a1f72c8cbb4a62e5c90a5b6a1d7a8c1e4f9b21', NULL, NULL, 'approved', 1, 'Approved', '2026-03-15 13:04:06', '2026-03-15 13:03:42'),
 (4, 4, 'usdt', 1000.00000000, '0x1a7d0e91aace0256baf375c18c333165a49851a8', '0x4e3f7b2a1c9d6e8f0a5b3c7d1e2f9a8b6c4d0e1f3a5b7c9d2e4f6a8b0c1d3e5f', NULL, NULL, 'approved', 1, 'Approved', '2026-03-15 13:15:21', '2026-03-15 13:15:11'),
 (5, 4, 'usdt', 10.00000000, '0x1a7d0e91aace0256baf375c18c333165a49851a8', '0xa1b2c3d4e5f60718293a4b5c6d7e8f90123456789abcdef0123456789abcdef0', NULL, NULL, 'approved', 1, 'Approved', '2026-03-15 13:37:43', '2026-03-15 13:32:08');
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `fd_deposits`
+--
+
+CREATE TABLE `fd_deposits` (
+  `id` int(11) NOT NULL,
+  `user_id` int(11) NOT NULL,
+  `amount` decimal(18,2) NOT NULL COMMENT 'Invested amount (INR)',
+  `monthly_rate` decimal(6,4) NOT NULL DEFAULT 5.0000 COMMENT 'Monthly return rate %',
+  `duration_days` int(11) NOT NULL DEFAULT 60 COMMENT 'Lock-in period in days',
+  `start_date` date NOT NULL,
+  `end_date` date NOT NULL,
+  `phase` enum('phase1_active','phase1_completed','phase2_sharing','expired') DEFAULT 'phase1_active',
+  `status` enum('active','completed','withdrawn','cancelled') DEFAULT 'active',
+  `total_earned` decimal(18,2) DEFAULT 0.00 COMMENT 'Total profit earned in Phase 1',
+  `profit_sharing_eligible` tinyint(1) DEFAULT 0,
+  `profit_sharing_expiry` date DEFAULT NULL COMMENT '1 year from FD completion',
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `fd_deposit_requests`
+--
+
+CREATE TABLE `fd_deposit_requests` (
+  `id` int(11) NOT NULL,
+  `user_id` int(11) NOT NULL,
+  `deposit_type` enum('usdt','upi') NOT NULL,
+  `amount` decimal(18,2) DEFAULT 0.00,
+  `wallet_address` varchar(200) DEFAULT NULL,
+  `tx_hash` varchar(200) DEFAULT NULL,
+  `upi_id` varchar(200) DEFAULT NULL,
+  `utr_number` varchar(100) DEFAULT NULL,
+  `status` enum('pending','approved','rejected','expired') DEFAULT 'pending',
+  `admin_id` int(11) DEFAULT NULL,
+  `admin_note` text DEFAULT NULL,
+  `reviewed_at` timestamp NULL DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `fd_profit_distributions`
+--
+
+CREATE TABLE `fd_profit_distributions` (
+  `id` int(11) NOT NULL,
+  `company_profit` decimal(18,2) NOT NULL COMMENT 'Total company profit for the period',
+  `distribution_percentage` decimal(6,2) NOT NULL COMMENT '% of profit to distribute',
+  `pool_amount` decimal(18,2) NOT NULL COMMENT 'Actual amount distributed (profit * %)',
+  `eligible_users_count` int(11) DEFAULT 0,
+  `total_eligible_investment` decimal(18,2) DEFAULT 0.00 COMMENT 'Sum of all eligible users FD amounts',
+  `distribution_month` varchar(7) NOT NULL COMMENT 'YYYY-MM format',
+  `status` enum('pending','distributed','cancelled') DEFAULT 'pending',
+  `distributed_at` timestamp NULL DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `admin_notes` text DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `fd_profit_logs`
+--
+
+CREATE TABLE `fd_profit_logs` (
+  `id` int(11) NOT NULL,
+  `fd_deposit_id` int(11) NOT NULL,
+  `user_id` int(11) NOT NULL,
+  `month_number` int(11) NOT NULL COMMENT '1 or 2',
+  `amount` decimal(18,2) NOT NULL COMMENT 'Profit credited',
+  `credited_at` timestamp NOT NULL DEFAULT current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `fd_settings`
+--
+
+CREATE TABLE `fd_settings` (
+  `id` int(11) NOT NULL,
+  `setting_key` varchar(100) NOT NULL,
+  `setting_value` text NOT NULL,
+  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+--
+-- Dumping data for table `fd_settings`
+--
+
+INSERT INTO `fd_settings` (`id`, `setting_key`, `setting_value`, `updated_at`) VALUES
+(1, 'fd_monthly_rate', '5', '2026-03-25 16:44:00'),
+(2, 'fd_duration_days', '60', '2026-03-25 16:44:00'),
+(3, 'fd_min_investment', '1000', '2026-03-25 16:44:00'),
+(4, 'fd_max_investment', '50000', '2026-03-25 16:44:00'),
+(5, 'profit_sharing_enabled', '1', '2026-03-25 16:44:00'),
+(6, 'profit_sharing_duration_months', '12', '2026-03-25 16:44:00'),
+(7, 'min_deposit_usdt', '10', '2026-03-25 16:44:00'),
+(8, 'min_deposit_upi', '1000', '2026-03-25 16:44:00'),
+(9, 'usd_to_inr_rate', '98', '2026-03-25 16:44:00');
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `fd_support_tickets`
+--
+
+CREATE TABLE `fd_support_tickets` (
+  `id` int(11) NOT NULL,
+  `user_id` int(11) NOT NULL,
+  `subject` varchar(255) NOT NULL,
+  `description` text NOT NULL,
+  `attachment_url` varchar(500) DEFAULT NULL,
+  `status` enum('open','in_progress','closed') DEFAULT 'open',
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `fd_ticket_replies`
+--
+
+CREATE TABLE `fd_ticket_replies` (
+  `id` int(11) NOT NULL,
+  `ticket_id` int(11) NOT NULL,
+  `user_id` int(11) NOT NULL,
+  `is_admin` tinyint(1) DEFAULT 0,
+  `message` text NOT NULL,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `fd_transactions`
+--
+
+CREATE TABLE `fd_transactions` (
+  `id` int(11) NOT NULL,
+  `user_id` int(11) NOT NULL,
+  `type` enum('deposit','withdrawal','fd_invest','fd_return','fd_profit','profit_share','admin_adjustment') NOT NULL,
+  `amount` decimal(18,2) NOT NULL,
+  `wallet_address` varchar(200) DEFAULT NULL,
+  `status` enum('pending','completed','rejected') DEFAULT 'pending',
+  `tx_hash` varchar(200) DEFAULT NULL,
+  `notes` text DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `network` varchar(50) DEFAULT 'BEP20',
+  `inr_amount` decimal(18,2) DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `fd_users`
+--
+
+CREATE TABLE `fd_users` (
+  `id` int(11) NOT NULL,
+  `name` varchar(100) NOT NULL,
+  `email` varchar(255) NOT NULL,
+  `phone` varchar(20) NOT NULL,
+  `password_hash` varchar(255) NOT NULL,
+  `wallet_balance` decimal(18,2) DEFAULT 0.00,
+  `total_deposited` decimal(20,2) DEFAULT 0.00,
+  `referral_code` varchar(20) NOT NULL,
+  `referred_by` varchar(20) DEFAULT NULL,
+  `role` enum('user','admin') DEFAULT 'user',
+  `is_verified` tinyint(1) DEFAULT 0,
+  `is_blocked` tinyint(1) DEFAULT 0,
+  `profit_sharing_enabled` tinyint(1) DEFAULT 1,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `fd_user_profit_shares`
+--
+
+CREATE TABLE `fd_user_profit_shares` (
+  `id` int(11) NOT NULL,
+  `distribution_id` int(11) NOT NULL,
+  `user_id` int(11) NOT NULL,
+  `fd_deposit_id` int(11) NOT NULL,
+  `investment_amount` decimal(18,2) NOT NULL COMMENT 'User FD amount used for calculation',
+  `share_percentage` decimal(8,4) NOT NULL COMMENT 'User share % of total pool',
+  `amount` decimal(18,2) NOT NULL COMMENT 'Actual amount credited',
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 -- --------------------------------------------------------
 
@@ -666,6 +867,92 @@ ALTER TABLE `deposit_requests`
   ADD KEY `idx_created` (`created_at`);
 
 --
+-- Indexes for table `fd_deposits`
+--
+ALTER TABLE `fd_deposits`
+  ADD PRIMARY KEY (`id`),
+  ADD KEY `idx_user` (`user_id`),
+  ADD KEY `idx_phase` (`phase`),
+  ADD KEY `idx_status` (`status`),
+  ADD KEY `idx_end_date` (`end_date`);
+
+--
+-- Indexes for table `fd_deposit_requests`
+--
+ALTER TABLE `fd_deposit_requests`
+  ADD PRIMARY KEY (`id`),
+  ADD UNIQUE KEY `uk_tx_hash` (`tx_hash`),
+  ADD UNIQUE KEY `uk_utr_number` (`utr_number`),
+  ADD KEY `idx_user` (`user_id`),
+  ADD KEY `idx_status` (`status`),
+  ADD KEY `idx_created` (`created_at`);
+
+--
+-- Indexes for table `fd_profit_distributions`
+--
+ALTER TABLE `fd_profit_distributions`
+  ADD PRIMARY KEY (`id`),
+  ADD KEY `idx_month` (`distribution_month`),
+  ADD KEY `idx_status` (`status`);
+
+--
+-- Indexes for table `fd_profit_logs`
+--
+ALTER TABLE `fd_profit_logs`
+  ADD PRIMARY KEY (`id`),
+  ADD UNIQUE KEY `uk_fd_month` (`fd_deposit_id`,`month_number`),
+  ADD KEY `idx_fd_deposit` (`fd_deposit_id`),
+  ADD KEY `idx_user` (`user_id`);
+
+--
+-- Indexes for table `fd_settings`
+--
+ALTER TABLE `fd_settings`
+  ADD PRIMARY KEY (`id`),
+  ADD UNIQUE KEY `setting_key` (`setting_key`);
+
+--
+-- Indexes for table `fd_support_tickets`
+--
+ALTER TABLE `fd_support_tickets`
+  ADD PRIMARY KEY (`id`),
+  ADD KEY `idx_user` (`user_id`),
+  ADD KEY `idx_status` (`status`);
+
+--
+-- Indexes for table `fd_ticket_replies`
+--
+ALTER TABLE `fd_ticket_replies`
+  ADD PRIMARY KEY (`id`),
+  ADD KEY `idx_ticket` (`ticket_id`);
+
+--
+-- Indexes for table `fd_transactions`
+--
+ALTER TABLE `fd_transactions`
+  ADD PRIMARY KEY (`id`),
+  ADD KEY `idx_user_type` (`user_id`,`type`),
+  ADD KEY `idx_status` (`status`);
+
+--
+-- Indexes for table `fd_users`
+--
+ALTER TABLE `fd_users`
+  ADD PRIMARY KEY (`id`),
+  ADD UNIQUE KEY `email` (`email`),
+  ADD UNIQUE KEY `referral_code` (`referral_code`),
+  ADD KEY `idx_email` (`email`);
+
+--
+-- Indexes for table `fd_user_profit_shares`
+--
+ALTER TABLE `fd_user_profit_shares`
+  ADD PRIMARY KEY (`id`),
+  ADD KEY `idx_distribution` (`distribution_id`),
+  ADD KEY `idx_user` (`user_id`),
+  ADD KEY `fd_user_profit_shares_ibfk_3` (`fd_deposit_id`);
+
+--
 -- Indexes for table `otp_codes`
 --
 ALTER TABLE `otp_codes`
@@ -823,6 +1110,66 @@ ALTER TABLE `deposit_requests`
   MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=6;
 
 --
+-- AUTO_INCREMENT for table `fd_deposits`
+--
+ALTER TABLE `fd_deposits`
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT for table `fd_deposit_requests`
+--
+ALTER TABLE `fd_deposit_requests`
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT for table `fd_profit_distributions`
+--
+ALTER TABLE `fd_profit_distributions`
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT for table `fd_profit_logs`
+--
+ALTER TABLE `fd_profit_logs`
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT for table `fd_settings`
+--
+ALTER TABLE `fd_settings`
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=10;
+
+--
+-- AUTO_INCREMENT for table `fd_support_tickets`
+--
+ALTER TABLE `fd_support_tickets`
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT for table `fd_ticket_replies`
+--
+ALTER TABLE `fd_ticket_replies`
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT for table `fd_transactions`
+--
+ALTER TABLE `fd_transactions`
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT for table `fd_users`
+--
+ALTER TABLE `fd_users`
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT for table `fd_user_profit_shares`
+--
+ALTER TABLE `fd_user_profit_shares`
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
+
+--
 -- AUTO_INCREMENT for table `otp_codes`
 --
 ALTER TABLE `otp_codes`
@@ -923,6 +1270,51 @@ ALTER TABLE `daily_salary_log`
 --
 ALTER TABLE `deposit_requests`
   ADD CONSTRAINT `deposit_requests_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE;
+
+--
+-- Constraints for table `fd_deposits`
+--
+ALTER TABLE `fd_deposits`
+  ADD CONSTRAINT `fd_deposits_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `fd_users` (`id`) ON DELETE CASCADE;
+
+--
+-- Constraints for table `fd_deposit_requests`
+--
+ALTER TABLE `fd_deposit_requests`
+  ADD CONSTRAINT `fd_deposit_requests_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `fd_users` (`id`) ON DELETE CASCADE;
+
+--
+-- Constraints for table `fd_profit_logs`
+--
+ALTER TABLE `fd_profit_logs`
+  ADD CONSTRAINT `fd_profit_logs_ibfk_1` FOREIGN KEY (`fd_deposit_id`) REFERENCES `fd_deposits` (`id`) ON DELETE CASCADE,
+  ADD CONSTRAINT `fd_profit_logs_ibfk_2` FOREIGN KEY (`user_id`) REFERENCES `fd_users` (`id`) ON DELETE CASCADE;
+
+--
+-- Constraints for table `fd_support_tickets`
+--
+ALTER TABLE `fd_support_tickets`
+  ADD CONSTRAINT `fd_support_tickets_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `fd_users` (`id`) ON DELETE CASCADE;
+
+--
+-- Constraints for table `fd_ticket_replies`
+--
+ALTER TABLE `fd_ticket_replies`
+  ADD CONSTRAINT `fd_ticket_replies_ibfk_1` FOREIGN KEY (`ticket_id`) REFERENCES `fd_support_tickets` (`id`) ON DELETE CASCADE;
+
+--
+-- Constraints for table `fd_transactions`
+--
+ALTER TABLE `fd_transactions`
+  ADD CONSTRAINT `fd_transactions_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `fd_users` (`id`) ON DELETE CASCADE;
+
+--
+-- Constraints for table `fd_user_profit_shares`
+--
+ALTER TABLE `fd_user_profit_shares`
+  ADD CONSTRAINT `fd_user_profit_shares_ibfk_1` FOREIGN KEY (`distribution_id`) REFERENCES `fd_profit_distributions` (`id`) ON DELETE CASCADE,
+  ADD CONSTRAINT `fd_user_profit_shares_ibfk_2` FOREIGN KEY (`user_id`) REFERENCES `fd_users` (`id`) ON DELETE CASCADE,
+  ADD CONSTRAINT `fd_user_profit_shares_ibfk_3` FOREIGN KEY (`fd_deposit_id`) REFERENCES `fd_deposits` (`id`) ON DELETE CASCADE;
 
 --
 -- Constraints for table `referral_earnings`

@@ -7,7 +7,7 @@ import Image from 'next/image';
 import axios from 'axios';
 import toast from 'react-hot-toast';
 import { motion, AnimatePresence } from 'framer-motion';
-import { UserIcon, PhoneIcon, EnvelopeIcon, LockClosedIcon, EyeIcon, EyeSlashIcon, KeyIcon, ArrowLeftIcon, ChartBarIcon, BanknotesIcon } from '@heroicons/react/24/outline';
+import { UserIcon, PhoneIcon, EnvelopeIcon, LockClosedIcon, EyeIcon, EyeSlashIcon, ArrowLeftIcon, ChartBarIcon, BanknotesIcon } from '@heroicons/react/24/outline';
 
 type Step = 'form' | 'otp' | 'forgot' | 'reset';
 
@@ -45,7 +45,7 @@ function FDSignupContent() {
     const [showPw, setShowPw] = useState(false);
     const [showCpw, setShowCpw] = useState(false);
 
-    const [inviteCode, setInviteCode] = useState('');
+
     const [name, setName] = useState('');
     const [phone, setPhone] = useState('');
     const [email, setEmail] = useState('');
@@ -85,7 +85,7 @@ function FDSignupContent() {
         setLoading(true);
         try {
             const res = await axios.post('/api/fd/auth/signup', {
-                inviteCode: inviteCode || undefined, name, phone, email, otp, password, confirmPassword,
+                name, phone, email, otp, password, confirmPassword,
             });
             toast.success(res.data.message);
             router.push('/fd/home');
@@ -195,10 +195,6 @@ function FDSignupContent() {
                                     <p className="text-text-secondary text-sm">Start investing with GrowViax FD</p>
                                 </div>
                                 <form onSubmit={(e) => { e.preventDefault(); sendOTP(); }}>
-                                    <InputField icon={KeyIcon} label="Invite Code (Optional)">
-                                        <input type="text" value={inviteCode} onChange={(e) => setInviteCode(e.target.value)}
-                                            placeholder="Enter referral code" className="glass-input pl-12" />
-                                    </InputField>
 
                                     <InputField icon={UserIcon} label="Full Name" error={errors.name}>
                                         <input type="text" value={name} onChange={(e) => { setName(e.target.value); setErrors(p => ({ ...p, name: '' })); }}
