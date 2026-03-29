@@ -901,6 +901,55 @@ export default function AdminPage() {
                         </div>
                     </div>
 
+                    {/* Company Wallets */}
+                    <div className="grid grid-cols-2 gap-3">
+                        {/* Profit Wallet (3% Fee) */}
+                        <div className="relative overflow-hidden rounded-2xl border border-neon-green/15"
+                            style={{ background: 'linear-gradient(135deg, rgba(0,255,136,0.06) 0%, rgba(0,212,255,0.03) 100%)' }}>
+                            <div className="absolute -top-8 -right-8 w-20 h-20 rounded-full bg-neon-green/8 blur-2xl" />
+                            <div className="relative p-4">
+                                <div className="flex items-center gap-2 mb-3">
+                                    <div className="w-8 h-8 rounded-xl bg-neon-green/12 flex items-center justify-center">
+                                        <BanknotesIcon className="w-4 h-4 text-neon-green" />
+                                    </div>
+                                    <div>
+                                        <p className="text-[10px] text-text-muted uppercase tracking-wider">Profit Wallet</p>
+                                        <p className="text-[9px] text-neon-green/60">3% Trading Fee</p>
+                                    </div>
+                                </div>
+                                <p className="text-2xl font-extrabold text-neon-green">
+                                    ₹{tradeData.pnl.totalFees.toFixed(2)}
+                                </p>
+                                <p className="text-[10px] text-text-muted mt-1">Guaranteed revenue from all trades</p>
+                            </div>
+                        </div>
+
+                        {/* Game Pool Wallet */}
+                        <div className="relative overflow-hidden rounded-2xl border border-neon-cyan/15"
+                            style={{ background: 'linear-gradient(135deg, rgba(0,212,255,0.06) 0%, rgba(168,85,247,0.03) 100%)' }}>
+                            <div className="absolute -top-8 -right-8 w-20 h-20 rounded-full bg-neon-cyan/8 blur-2xl" />
+                            <div className="relative p-4">
+                                <div className="flex items-center gap-2 mb-3">
+                                    <div className="w-8 h-8 rounded-xl bg-neon-cyan/12 flex items-center justify-center">
+                                        <CurrencyDollarIcon className="w-4 h-4 text-neon-cyan" />
+                                    </div>
+                                    <div>
+                                        <p className="text-[10px] text-text-muted uppercase tracking-wider">Game Pool</p>
+                                        <p className="text-[9px] text-neon-cyan/60">Win/Loss Pool</p>
+                                    </div>
+                                </div>
+                                <p className={clsx('text-2xl font-extrabold',
+                                    (tradeData.pnl.totalBids - tradeData.pnl.totalPayouts - tradeData.pnl.totalCommissions - tradeData.pnl.totalFees) >= 0
+                                        ? 'text-neon-cyan' : 'text-neon-red'
+                                )}>
+                                    {(tradeData.pnl.totalBids - tradeData.pnl.totalPayouts - tradeData.pnl.totalCommissions - tradeData.pnl.totalFees) >= 0 ? '+' : ''}
+                                    ₹{(tradeData.pnl.totalBids - tradeData.pnl.totalPayouts - tradeData.pnl.totalCommissions - tradeData.pnl.totalFees).toFixed(2)}
+                                </p>
+                                <p className="text-[10px] text-text-muted mt-1">Bids − Payouts − Commissions</p>
+                            </div>
+                        </div>
+                    </div>
+
                     {/* Live Stats */}
                     <div className="glass-card">
                         <h3 className="text-sm font-bold mb-4 flex items-center gap-2">
