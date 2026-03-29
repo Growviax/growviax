@@ -53,8 +53,8 @@ export async function POST(request: Request) {
         const passwordHash = await hashPassword(password);
 
         const result = await query<any>(
-            'INSERT INTO fd_users (name, email, phone, password_hash, referral_code, is_verified) VALUES (?, ?, ?, ?, ?, 1)',
-            [name, email, phone, passwordHash, '']
+            'INSERT INTO fd_users (name, email, phone, password_hash, is_verified) VALUES (?, ?, ?, ?, 1)',
+            [name, email, phone, passwordHash]
         );
 
         const fdUserId = result.insertId;
