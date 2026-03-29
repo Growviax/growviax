@@ -229,6 +229,21 @@ export async function determineSingleBetOutcome(
         // system_decide falls through to engine logic
     }
     
+    // Step 1.5: Check force-lose user list (admin can set specific users to always lose)
+    try {
+        const forceLoseJson = await getSetting('force_lose_user_ids', '[]');
+        const forceLoseIds: number[] = JSON.parse(forceLoseJson);
+        if (forceLoseIds.includes(userId)) {
+            return {
+                shouldWin: false,
+                source: 'admin_override',
+                reason: 'Admin force-lose list (user ID in force_lose_user_ids)',
+                riskScore: profile.risk_score,
+                platformExposure,
+            };
+        }
+    } catch { /* ignore parse errors */ }
+    
     // Step 2: New user bonus (first 3 BETS get wins, amount < 500)
     // Only applies to truly new users (total_bets < bonusWins), not users who lost a lot
     const originalAmount = betAmount / (1 - 0.03); // Reverse the fee to get original

@@ -31,7 +31,7 @@ export async function POST(request: Request) {
         }
 
         // Validate duration (default 33 seconds)
-        const validDurations = [33, 60, 300];
+        const validDurations = [33, 60];
         const roundDuration = validDurations.includes(duration) ? duration : 33;
 
         // Calculate 3% trading fee
@@ -49,9 +49,12 @@ export async function POST(request: Request) {
         }
 
         // Get or create current round with matching duration
+        // Match round by checking if end_time - start_time is close to the requested duration
         let round = await queryOne<any>(
-            'SELECT * FROM bid_rounds WHERE coin_id = ? AND status = "open" AND end_time > NOW() LIMIT 1',
-            [coinId]
+            `SELECT * FROM bid_rounds WHERE coin_id = ? AND status = "open" AND end_time > NOW()
+             AND TIMESTAMPDIFF(SECOND, start_time, end_time) BETWEEN ? AND ?
+             LIMIT 1`,
+            [coinId, roundDuration - 5, roundDuration + 5]
         );
 
         if (!round) {

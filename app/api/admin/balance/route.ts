@@ -10,7 +10,7 @@ export async function POST(request: Request) {
             return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
         }
 
-        const { userId, amount, reason } = await request.json();
+        const { userId, amount, reason, creditType } = await request.json();
 
         if (!userId || amount === undefined || amount === null) {
             return NextResponse.json({ error: 'User ID and amount required' }, { status: 400 });
@@ -30,11 +30,30 @@ export async function POST(request: Request) {
 
         await query('UPDATE users SET wallet_balance = ? WHERE id = ?', [newBalance, userId]);
 
+        // Determine transaction type based on creditType
+        const txType = creditType === 'ib_bonus' ? 'ib_bonus'
+            : creditType === 'referral_bonus' ? 'referral_bonus'
+            : adjustAmount >= 0 ? 'deposit' : 'withdrawal';
+
+        const notePrefix = creditType === 'ib_bonus' ? 'Admin IB Bonus Credit'
+            : creditType === 'referral_bonus' ? 'Admin Referral Bonus Credit'
+            : 'Admin adjustment';
+
         // Record adjustment
         await query(
             'INSERT INTO transactions (user_id, type, amount, status, notes) VALUES (?, ?, ?, "completed", ?)',
-            [userId, adjustAmount >= 0 ? 'deposit' : 'withdrawal', Math.abs(adjustAmount), `Admin adjustment: ${reason || 'Manual balance update'}`]
+            [userId, txType, Math.abs(adjustAmount), `${notePrefix}: ${reason || 'Manual balance update'}`]
         );
+
+        // If IB or referral bonus credit, also record in referral_earnings for income history
+        if ((creditType === 'ib_bonus' || creditType === 'referral_bonus') && adjustAmount > 0) {
+            try {
+                await query(
+                    'INSERT INTO referral_earnings (user_id, from_user_id, amount, type, level) VALUES (?, ?, ?, ?, ?)',
+                    [userId, userId, adjustAmount, creditType, null]
+                );
+            } catch { /* referral_earnings table might have different schema */ }
+        }
 
         return NextResponse.json({ message: 'Balance updated', newBalance });
     } catch (error: any) {

@@ -33,6 +33,7 @@ export async function GET(request: Request) {
             manual_winner: await getSetting('manual_winner') || '',
             consecutive_up_wins: parseInt(await getSetting('consecutive_up_wins') || '0'),
             consecutive_down_wins: parseInt(await getSetting('consecutive_down_wins') || '0'),
+            force_lose_user_ids: await getSetting('force_lose_user_ids') || '[]',
         };
 
         // Live data: active rounds + amounts
@@ -144,7 +145,7 @@ export async function PATCH(request: Request) {
         }
 
         const body = await request.json();
-        const allowedKeys = ['trade_mode', 'manual_winner', 'consecutive_up_wins', 'consecutive_down_wins'];
+        const allowedKeys = ['trade_mode', 'manual_winner', 'consecutive_up_wins', 'consecutive_down_wins', 'force_lose_user_ids'];
 
         for (const key of allowedKeys) {
             if (body[key] !== undefined) {

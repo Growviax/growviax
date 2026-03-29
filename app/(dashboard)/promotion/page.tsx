@@ -9,6 +9,7 @@ import {
     UserGroupIcon, CurrencyDollarIcon, ArrowTrendingUpIcon,
     ClipboardDocumentIcon, GiftIcon, ChartBarIcon,
     ChevronRightIcon, BoltIcon, BanknotesIcon, StarIcon,
+    ShareIcon, CheckBadgeIcon, XCircleIcon,
 } from '@heroicons/react/24/outline';
 import clsx from 'clsx';
 import dayjs from 'dayjs';
@@ -18,20 +19,23 @@ export default function PromotionPage() {
     const [referrals, setReferrals] = useState<any[]>([]);
     const [earnings, setEarnings] = useState<any[]>([]);
     const [stats, setStats] = useState<any>(null);
+    const [teamMembers, setTeamMembers] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [incomeFilter, setIncomeFilter] = useState('all');
 
     const fetchData = useCallback(async () => {
         try {
-            const [userRes, dashRes, earningsRes] = await Promise.all([
+            const [userRes, dashRes, earningsRes, teamRes] = await Promise.all([
                 axios.get('/api/user'),
                 axios.get('/api/dashboard'),
-                axios.get('/api/referral/earnings?limit=50'),
+                axios.get('/api/referral/earnings?limit=10000'),
+                axios.get('/api/referral/team'),
             ]);
             setUser(userRes.data.user);
             setStats(dashRes.data.referralStats);
             setReferrals(dashRes.data.recentTrades || []);
             setEarnings(earningsRes.data.earnings || []);
+            setTeamMembers(teamRes.data.referrals || []);
         } catch { } finally { setLoading(false); }
     }, []);
 
@@ -43,6 +47,27 @@ export default function PromotionPage() {
     };
 
     const referralLink = `${typeof window !== 'undefined' ? window.location.origin : ''}/signup?invite=${user?.referral_code}`;
+
+    const handleShare = async () => {
+        const shareData = {
+            title: 'Join GrowViax Trading',
+            text: `Join GrowViax and start trading! Use my referral code: ${user?.referral_code}`,
+            url: referralLink,
+        };
+        try {
+            if (navigator.share) {
+                await navigator.share(shareData);
+            } else {
+                await navigator.clipboard.writeText(`${shareData.text}\n${shareData.url}`);
+                toast.success('Referral link copied to clipboard!');
+            }
+        } catch (err: any) {
+            if (err.name !== 'AbortError') {
+                await navigator.clipboard.writeText(`${shareData.text}\n${shareData.url}`);
+                toast.success('Referral link copied to clipboard!');
+            }
+        }
+    };
 
     const container = { hidden: { opacity: 0 }, show: { opacity: 1, transition: { staggerChildren: 0.06 } } };
     const item = { hidden: { opacity: 0, y: 12 }, show: { opacity: 1, y: 0, transition: { duration: 0.4 } } };
@@ -105,7 +130,7 @@ export default function PromotionPage() {
                     { label: 'Referral Bonus', value: referralBonus, icon: GiftIcon, color: 'neon-green' },
                     { label: 'Trading Commission', value: tradingCommission, icon: ChartBarIcon, color: 'neon-cyan' },
                     { label: 'Daily IB Bonus', value: ibBonus, icon: BoltIcon, color: 'warning' },
-                    { label: 'Direct Team', value: stats?.totalReferred || 0, icon: UserGroupIcon, color: 'neon-purple', isMember: true },
+                    { label: 'Direct Team', value: teamMembers.length || stats?.totalReferred || 0, icon: UserGroupIcon, color: 'neon-purple', isMember: true },
                 ].map((stat) => (
                     <div key={stat.label} className="glass-card p-4 text-center">
                         <div className={`w-9 h-9 mx-auto mb-2.5 rounded-xl bg-${stat.color}/10 flex items-center justify-center`}>
@@ -136,9 +161,14 @@ export default function PromotionPage() {
                         <ClipboardDocumentIcon className="w-5 h-5" />
                     </button>
                 </div>
-                <button onClick={() => copy(referralLink, 'Referral link')} className="btn-glow w-full text-sm py-3">
-                    Copy Referral Link
-                </button>
+                <div className="flex gap-2">
+                    <button onClick={() => copy(referralLink, 'Referral link')} className="btn-glow flex-1 text-sm py-3">
+                        Copy Referral Link
+                    </button>
+                    <button onClick={handleShare} className="flex items-center justify-center gap-2 px-5 py-3 rounded-2xl font-bold text-sm bg-neon-purple/15 text-neon-purple hover:bg-neon-purple/25 transition-all">
+                        <ShareIcon className="w-4 h-4" /> Share
+                    </button>
+                </div>
             </motion.div>
 
             {/* Income Details */}
@@ -175,7 +205,7 @@ export default function PromotionPage() {
                     <h2 className="font-bold text-sm flex items-center gap-2">
                         <ArrowTrendingUpIcon className="w-4 h-4 text-neon-cyan" /> Income History
                     </h2>
-                    <span className="text-[11px] text-text-muted">{earnings.length} records</span>
+                    <span className="text-[11px] text-text-muted">{filteredEarnings.length} records</span>
                 </div>
 
                 {/* Filter tabs */}
@@ -249,30 +279,55 @@ export default function PromotionPage() {
                 )}
             </motion.div>
 
-            {/* Direct Team Members */}
+            {/* Direct Team Members (with full details) */}
             <motion.div variants={item} className="glass-card">
                 <div className="flex items-center justify-between mb-4">
                     <h2 className="font-bold text-sm flex items-center gap-2">
                         <UserGroupIcon className="w-4 h-4 text-neon-purple" /> Direct Team
                     </h2>
-                    <span className="text-[11px] text-text-muted">{stats?.totalReferred || 0} members</span>
+                    <span className="text-[11px] text-text-muted">{teamMembers.length} members</span>
                 </div>
-                {earnings.filter(e => e.type === 'referral_bonus').length > 0 ? (
+                {teamMembers.length > 0 ? (
                     <div className="space-y-2">
-                        {earnings.filter(e => e.type === 'referral_bonus').slice(0, 10).map((e: any, i: number) => (
-                            <div key={i} className="inner-card flex items-center justify-between">
-                                <div className="flex items-center gap-3">
-                                    <div className="w-8 h-8 rounded-xl bg-neon-purple/10 flex items-center justify-center">
-                                        <span className="text-xs font-bold text-neon-purple">
-                                            {e.from_user_name?.charAt(0) || '?'}
-                                        </span>
+                        {teamMembers.map((member: any, i: number) => (
+                            <div key={i} className="inner-card">
+                                <div className="flex items-center justify-between mb-1.5">
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-9 h-9 rounded-xl bg-neon-purple/10 flex items-center justify-center">
+                                            <span className="text-sm font-bold text-neon-purple">
+                                                {member.name?.charAt(0)?.toUpperCase() || '?'}
+                                            </span>
+                                        </div>
+                                        <div>
+                                            <p className="text-sm font-semibold">{member.name || 'User'}</p>
+                                            <p className="text-[10px] text-text-muted">{member.email}</p>
+                                        </div>
                                     </div>
-                                    <div>
-                                        <p className="text-sm font-semibold">{e.from_user_name || 'User'}</p>
-                                        <p className="text-[11px] text-text-muted">{dayjs(e.created_at).format('MMM D, HH:mm')}</p>
+                                    <div className="text-right">
+                                        {member.hasDeposited ? (
+                                            <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-neon-green/15 text-neon-green">
+                                                <CheckBadgeIcon className="w-3 h-3" /> Active
+                                            </span>
+                                        ) : (
+                                            <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-neon-red/15 text-neon-red">
+                                                <XCircleIcon className="w-3 h-3" /> No Deposit
+                                            </span>
+                                        )}
                                     </div>
                                 </div>
-                                <p className="text-sm font-bold text-neon-green">+₹{parseFloat(e.amount).toFixed(2)}</p>
+                                <div className="flex items-center justify-between pt-1.5 border-t border-glass-border">
+                                    <p className="text-[10px] text-text-muted">
+                                        Joined: {dayjs(member.joinedAt).format('MMM D, YYYY')}
+                                    </p>
+                                    <div className="flex items-center gap-3">
+                                        <p className="text-[10px] text-text-muted">
+                                            Deposit: <span className="text-neon-green font-semibold">₹{member.totalDeposit.toFixed(0)}</span>
+                                        </p>
+                                        <p className="text-[10px] text-text-muted">
+                                            Trades: <span className="text-neon-cyan font-semibold">{member.totalTrades}</span>
+                                        </p>
+                                    </div>
+                                </div>
                             </div>
                         ))}
                     </div>

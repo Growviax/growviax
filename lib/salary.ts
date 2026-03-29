@@ -152,29 +152,37 @@ export async function processDailySalaries(): Promise<{ processed: number; total
 
             if (!tier) continue; // Not qualifying
 
-            // Credit daily salary (in INR, stored as USD equivalent at ~83 rate)
-            const salaryUSD = Math.round((tier.dailySalary / 83) * 100) / 100;
+            // Credit daily salary in INR directly to wallet
+            const salaryAmount = tier.dailySalary;
 
-            await query('UPDATE users SET wallet_balance = wallet_balance + ? WHERE id = ?', [salaryUSD, pu.id]);
+            await query('UPDATE users SET wallet_balance = wallet_balance + ? WHERE id = ?', [salaryAmount, pu.id]);
 
             // Log salary
             try {
                 await query(
                     'INSERT INTO daily_salary_log (user_id, tier_id, amount) VALUES (?, ?, ?)',
-                    [pu.id, tier.id, tier.dailySalary]
+                    [pu.id, tier.id, salaryAmount]
                 );
             } catch {
                 // Table might not exist
             }
 
-            // Record transaction
+            // Record in referral_earnings for unified income history
+            try {
+                await query(
+                    'INSERT INTO referral_earnings (user_id, from_user_id, amount, type, level) VALUES (?, ?, ?, ?, ?)',
+                    [pu.id, pu.id, salaryAmount, 'ib_bonus', null]
+                );
+            } catch { }
+
+            // Record transaction with correct type
             await query(
-                'INSERT INTO transactions (user_id, type, amount, status, notes) VALUES (?, "referral_bonus", ?, "completed", ?)',
-                [pu.id, salaryUSD, `Daily IB Salary - Tier ${tier.id} (₹${tier.dailySalary})`]
+                'INSERT INTO transactions (user_id, type, amount, status, notes) VALUES (?, "ib_bonus", ?, "completed", ?)',
+                [pu.id, salaryAmount, `Daily IB Salary - Tier ${tier.id} (₹${salaryAmount})`]
             );
 
             processed++;
-            totalCredited += salaryUSD;
+            totalCredited += salaryAmount;
         }
     } catch (error) {
         console.error('Daily salary processing error:', error);

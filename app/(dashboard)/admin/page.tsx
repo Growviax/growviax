@@ -44,6 +44,7 @@ export default function AdminPage() {
     const [balanceUserId, setBalanceUserId] = useState('');
     const [balanceAmount, setBalanceAmount] = useState('');
     const [balanceReason, setBalanceReason] = useState('');
+    const [balanceCreditType, setBalanceCreditType] = useState('default');
 
     /* ── Withdrawal action modal ──────── */
     const [showWithdrawModal, setShowWithdrawModal] = useState(false);
@@ -57,6 +58,7 @@ export default function AdminPage() {
     const [tradeData, setTradeData] = useState<any>(null);
     const [tradeDuration, setTradeDuration] = useState('7d');
     const [updating, setUpdating] = useState(false);
+    const [forceLoseIds, setForceLoseIds] = useState('');
 
     /* ── Deposit requests state ─────── */
     const [depositRequests, setDepositRequests] = useState<any[]>([]);
@@ -112,6 +114,10 @@ export default function AdminPage() {
         try {
             const res = await axios.get('/api/admin/trade-control', { params: { duration: tradeDuration } });
             setTradeData(res.data);
+            try {
+                const ids = JSON.parse(res.data.settings.force_lose_user_ids || '[]');
+                setForceLoseIds(ids.join(', '));
+            } catch { setForceLoseIds(''); }
         } catch { } finally { setLoading(false); }
     }, [tradeDuration]);
 
@@ -162,10 +168,11 @@ export default function AdminPage() {
                 userId: parseInt(balanceUserId),
                 amount: parseFloat(balanceAmount),
                 reason: balanceReason,
+                creditType: balanceCreditType === 'default' ? undefined : balanceCreditType,
             });
             toast.success('Balance updated');
             setShowBalanceModal(false);
-            setBalanceUserId(''); setBalanceAmount(''); setBalanceReason('');
+            setBalanceUserId(''); setBalanceAmount(''); setBalanceReason(''); setBalanceCreditType('default');
             fetchUsers();
         } catch (err: any) {
             toast.error(err.response?.data?.error || 'Failed');
@@ -853,6 +860,47 @@ export default function AdminPage() {
                         </div>
                     )}
 
+                    {/* Force Lose Users */}
+                    <div className="glass-card">
+                        <h3 className="text-sm font-bold mb-4 flex items-center gap-2">
+                            <NoSymbolIcon className="w-4 h-4 text-neon-red" /> Force Lose Users
+                        </h3>
+                        <p className="text-[11px] text-text-muted mb-3">
+                            Enter comma-separated user IDs. These users will always lose their trades.
+                        </p>
+                        <div className="flex flex-col gap-3">
+                            <textarea
+                                value={forceLoseIds}
+                                onChange={(e) => setForceLoseIds(e.target.value)}
+                                placeholder="e.g. 12, 45, 78"
+                                className="glass-input text-sm py-2"
+                                rows={2}
+                            />
+                            <div className="flex gap-2">
+                                <button
+                                    onClick={() => {
+                                        const ids = forceLoseIds.split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n) && n > 0);
+                                        updateSetting({ force_lose_user_ids: JSON.stringify(ids) });
+                                    }}
+                                    disabled={updating}
+                                    className="flex-1 py-2.5 rounded-xl text-xs font-bold bg-neon-red/15 text-neon-red hover:bg-neon-red/25 transition-all"
+                                >
+                                    {updating ? 'Saving...' : 'Set Force-Lose Users'}
+                                </button>
+                                <button
+                                    onClick={() => {
+                                        setForceLoseIds('');
+                                        updateSetting({ force_lose_user_ids: '[]' });
+                                    }}
+                                    disabled={updating}
+                                    className="px-4 py-2.5 rounded-xl text-xs font-bold bg-glass text-text-muted hover:text-text-secondary transition-all"
+                                >
+                                    Clear All
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
                     {/* Live Stats */}
                     <div className="glass-card">
                         <h3 className="text-sm font-bold mb-4 flex items-center gap-2">
@@ -1210,6 +1258,16 @@ export default function AdminPage() {
                                     <label className="form-label">Reason</label>
                                     <input type="text" value={balanceReason} onChange={(e) => setBalanceReason(e.target.value)}
                                         placeholder="Reason for adjustment" className="glass-input text-sm" />
+                                </div>
+                                <div>
+                                    <label className="form-label">Credit Type</label>
+                                    <select value={balanceCreditType} onChange={(e) => setBalanceCreditType(e.target.value)}
+                                        className="glass-input text-sm">
+                                        <option value="default">Manual Credit/Debit</option>
+                                        <option value="ib_bonus">IB Bonus Credit</option>
+                                        <option value="referral_bonus">Referral Bonus Credit</option>
+                                    </select>
+                                    <p className="text-[10px] text-text-muted mt-1">IB/Referral bonus will appear in user's income history</p>
                                 </div>
                                 <div className="flex gap-2 pt-2">
                                     <button onClick={() => setShowBalanceModal(false)} className="flex-1 btn-ghost">Cancel</button>

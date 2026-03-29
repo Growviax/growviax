@@ -30,7 +30,6 @@ const TIMEFRAMES = [
 const TRADE_DURATIONS = [
     { label: '33s', seconds: 33 },
     { label: '1m', seconds: 60 },
-    { label: '5m', seconds: 300 },
 ];
 
 const TRADE_FEE_PCT = 0.03; // 3%
@@ -561,7 +560,7 @@ export default function TradePage() {
                 <p className="text-[11px] text-text-muted uppercase tracking-wider font-medium mb-3 flex items-center gap-2">
                     <ClockIcon className="w-3.5 h-3.5 text-neon-cyan" /> Trade Duration
                 </p>
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-2 gap-2">
                     {TRADE_DURATIONS.map((td) => (
                         <button key={td.seconds} onClick={() => setTradeDuration(td.seconds)}
                             className={clsx(

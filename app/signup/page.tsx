@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, Suspense } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import Image from 'next/image';
@@ -57,6 +57,14 @@ function SignupContent() {
 
     // Inline validation errors
     const [errors, setErrors] = useState<Record<string, string>>({});
+
+    // Auto-fill invite code from URL parameter
+    useEffect(() => {
+        const invite = searchParams.get('invite');
+        if (invite && invite.trim()) {
+            setInviteCode(invite.trim());
+        }
+    }, [searchParams]);
 
     const validate = (): boolean => {
         const errs: Record<string, string> = {};
