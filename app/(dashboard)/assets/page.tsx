@@ -236,7 +236,7 @@ function AssetsContent() {
     /* ── History filtering ─────────────────────────── */
     const filteredTransactions = transactions.filter((t) => {
         const typeMatch = historyTab === 'deposit'
-            ? ['deposit', 'referral_bonus', 'commission'].includes(t.type)
+            ? ['deposit', 'referral_bonus', 'commission', 'ib_bonus'].includes(t.type)
             : ['withdrawal'].includes(t.type);
         const statusMatch = statusFilter === 'all' || t.status === statusFilter;
         return typeMatch && statusMatch;
@@ -888,7 +888,12 @@ function AssetsContent() {
                                     <div className="flex items-center gap-3">
                                         {statusIcon(tx.status)}
                                         <div>
-                                            <p className="text-sm font-semibold capitalize">{tx.type.replace(/_/g, ' ')}</p>
+                                            <p className="text-sm font-semibold capitalize">
+                                                {tx.type === 'ib_bonus' ? 'IB Salary Credit'
+                                                    : tx.type === 'commission' ? 'Trading Commission'
+                                                    : tx.type === 'referral_bonus' ? 'Referral Bonus'
+                                                    : tx.type.replace(/_/g, ' ')}
+                                            </p>
                                             <p className="text-[11px] text-text-muted">
                                                 {dayjs(tx.created_at).format('MMM D, YYYY • HH:mm')}
                                             </p>
@@ -909,17 +914,31 @@ function AssetsContent() {
                                 </div>
                                 {/* Details Row */}
                                 <div className="flex items-center justify-between mt-2 pt-2 border-t border-glass-border">
-                                    <div className="flex items-center gap-3 text-[11px] text-text-muted">
-                                        <span className={clsx('px-2 py-0.5 rounded-full text-[10px] font-semibold',
-                                            (tx.notes?.includes('UPI') || tx.wallet_address?.includes('@')) ? 'bg-neon-green/15 text-neon-green' : 'bg-neon-cyan/15 text-neon-cyan'
-                                        )}>
-                                            {(tx.notes?.includes('UPI') || tx.wallet_address?.includes('@')) ? 'UPI' : 'USDT'}
-                                        </span>
-                                        {tx.tx_hash && (
-                                            <span className="truncate max-w-[100px]">Hash: <span className="text-text-secondary font-mono">{tx.tx_hash.slice(0, 10)}...</span></span>
+                                    <div className="flex items-center gap-3 text-[11px] text-text-muted flex-1 min-w-0">
+                                        {tx.type === 'ib_bonus' ? (
+                                            <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-warning/15 text-warning shrink-0">IB BONUS</span>
+                                        ) : tx.type === 'commission' ? (
+                                            <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-neon-cyan/15 text-neon-cyan shrink-0">COMMISSION</span>
+                                        ) : tx.type === 'referral_bonus' ? (
+                                            <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-neon-purple/15 text-neon-purple shrink-0">REFERRAL</span>
+                                        ) : (
+                                            <span className={clsx('px-2 py-0.5 rounded-full text-[10px] font-semibold shrink-0',
+                                                (tx.notes?.includes('UPI') || tx.wallet_address?.includes('@')) ? 'bg-neon-green/15 text-neon-green' : 'bg-neon-cyan/15 text-neon-cyan'
+                                            )}>
+                                                {(tx.notes?.includes('UPI') || tx.wallet_address?.includes('@')) ? 'UPI' : 'USDT'}
+                                            </span>
                                         )}
-                                        {tx.wallet_address && !tx.tx_hash && (
-                                            <span className="truncate max-w-[100px]">To: <span className="text-text-secondary font-mono">{tx.wallet_address.slice(0, 12)}...</span></span>
+                                        {(tx.type === 'ib_bonus' || tx.type === 'commission' || tx.type === 'referral_bonus') && tx.notes ? (
+                                            <span className="truncate text-[10px] text-text-muted">{tx.notes}</span>
+                                        ) : (
+                                            <>
+                                                {tx.tx_hash && (
+                                                    <span className="truncate max-w-[100px]">Hash: <span className="text-text-secondary font-mono">{tx.tx_hash.slice(0, 10)}...</span></span>
+                                                )}
+                                                {tx.wallet_address && !tx.tx_hash && (
+                                                    <span className="truncate max-w-[100px]">To: <span className="text-text-secondary font-mono">{tx.wallet_address.slice(0, 12)}...</span></span>
+                                                )}
+                                            </>
                                         )}
                                     </div>
                                 </div>

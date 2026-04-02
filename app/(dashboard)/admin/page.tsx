@@ -82,6 +82,12 @@ export default function AdminPage() {
     const [editCommissionTexts, setEditCommissionTexts] = useState<string[]>([]);
     const [isEditingCommission, setIsEditingCommission] = useState(false);
 
+    /* ── IB milestone settings state ──── */
+    const [ibTiers, setIbTiers] = useState<any[]>([]);
+    const [editIbTiers, setEditIbTiers] = useState<any[]>([]);
+    const [isEditingIb, setIsEditingIb] = useState(false);
+    const [ibLoading, setIbLoading] = useState(false);
+
     /* ── Data fetching ────────────────── */
     const fetchUsers = useCallback(async () => {
         try {
@@ -148,6 +154,14 @@ export default function AdminPage() {
         } catch { } finally { setLoading(false); }
     }, []);
 
+    const fetchIbTiers = useCallback(async () => {
+        setIbLoading(true);
+        try {
+            const res = await axios.get('/api/admin/ib-settings');
+            setIbTiers(res.data.tiers || []);
+        } catch { } finally { setIbLoading(false); }
+    }, []);
+
     useEffect(() => {
         if (tab === 'users') fetchUsers();
         else if (tab === 'deposits') fetchDepositRequests();
@@ -155,9 +169,9 @@ export default function AdminPage() {
         else if (tab === 'support') fetchTickets();
         else if (tab === 'trading') fetchTradeControl();
         else if (tab === 'upi') fetchUpiAccounts();
-        else if (tab === 'referral') fetchReferralSettings();
+        else if (tab === 'referral') { fetchReferralSettings(); fetchIbTiers(); }
         else setLoading(false);
-    }, [tab, fetchUsers, fetchTransactions, fetchTickets, fetchTradeControl, fetchDepositRequests, fetchUpiAccounts, fetchReferralSettings]);
+    }, [tab, fetchUsers, fetchTransactions, fetchTickets, fetchTradeControl, fetchDepositRequests, fetchUpiAccounts, fetchReferralSettings, fetchIbTiers]);
 
     /* ── Actions ──────────────────────── */
     const handleBalanceAdjust = async () => {
@@ -331,6 +345,44 @@ export default function AdminPage() {
         setIsEditingCommission(false);
         setEditCommissionLevels([]);
         setEditCommissionTexts([]);
+    };
+
+    /* ── IB milestone handlers ────────── */
+    const handleEditIbTiers = () => {
+        setEditIbTiers(ibTiers.map(t => ({ ...t })));
+        setIsEditingIb(true);
+    };
+
+    const handleCancelEditIb = () => {
+        setIsEditingIb(false);
+        setEditIbTiers([]);
+    };
+
+    const handleUpdateIbTier = (index: number, field: string, value: string) => {
+        const updated = [...editIbTiers];
+        updated[index] = { ...updated[index], [field]: parseFloat(value) || 0 };
+        setEditIbTiers(updated);
+    };
+
+    const handleAddIbTier = () => {
+        setEditIbTiers([...editIbTiers, { id: editIbTiers.length + 1, minDirect: 6, minActive: 0, minDeposit: 0, dailySalary: 0 }]);
+    };
+
+    const handleRemoveIbTier = (index: number) => {
+        if (editIbTiers.length <= 1) return toast.error('Must have at least one tier');
+        setEditIbTiers(editIbTiers.filter((_, i) => i !== index));
+    };
+
+    const handleSaveIbTiers = async () => {
+        setProcessing(true);
+        try {
+            await axios.post('/api/admin/ib-settings', { tiers: editIbTiers });
+            toast.success('IB salary tiers updated');
+            setIsEditingIb(false);
+            fetchIbTiers();
+        } catch (err: any) {
+            toast.error(err.response?.data?.error || 'Failed to save IB tiers');
+        } finally { setProcessing(false); }
     };
 
     /* ── Tab config ───────────────────── */
@@ -1219,6 +1271,113 @@ export default function AdminPage() {
                         <p className="text-[10px] text-text-muted mt-3">Commission is paid on each trade from the user&apos;s downline chain up to 6 levels.</p>
                     </div>
 
+                    {/* ── IB Milestones Management ── */}
+                    <div className="glass-card">
+                        <div className="flex items-center justify-between mb-4">
+                            <h3 className="text-sm font-bold flex items-center gap-2">
+                                <BoltIcon className="w-4 h-4 text-warning" /> IB Salary Milestones
+                            </h3>
+                            <div className="flex items-center gap-2">
+                                {!isEditingIb && (
+                                    <button onClick={handleEditIbTiers} className="btn-ghost text-xs px-3 py-1.5">
+                                        Edit Tiers
+                                    </button>
+                                )}
+                                <button onClick={fetchIbTiers} className="text-text-muted hover:text-neon-green transition-colors">
+                                    <ArrowPathIcon className="w-4 h-4" />
+                                </button>
+                            </div>
+                        </div>
+
+                        <p className="text-[10px] text-text-muted mb-3">
+                            Active member = min 200 trades. All values in INR. Daily salary is credited once per day when user meets all 3 conditions.
+                        </p>
+
+                        {ibLoading ? (
+                            <div className="space-y-2"><div className="skeleton h-10 w-full" /><div className="skeleton h-10 w-full" /><div className="skeleton h-10 w-full" /></div>
+                        ) : isEditingIb ? (
+                            <>
+                                {/* Editable Table */}
+                                <div className="overflow-x-auto -mx-2">
+                                    <table className="w-full text-[11px]">
+                                        <thead>
+                                            <tr className="text-text-muted uppercase tracking-wider border-b border-glass-border">
+                                                <th className="text-left py-2 px-2">#</th>
+                                                <th className="text-left py-2 px-2">Direct</th>
+                                                <th className="text-left py-2 px-2">Active</th>
+                                                <th className="text-left py-2 px-2">Team Deposit (₹)</th>
+                                                <th className="text-left py-2 px-2">Daily Salary (₹)</th>
+                                                <th className="text-center py-2 px-2">Del</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {editIbTiers.map((tier, i) => (
+                                                <tr key={i} className="border-b border-glass-border/50">
+                                                    <td className="py-2 px-2 text-text-muted font-semibold">{i + 1}</td>
+                                                    <td className="py-2 px-2">
+                                                        <input type="number" value={tier.minDirect} onChange={(e) => handleUpdateIbTier(i, 'minDirect', e.target.value)}
+                                                            className="glass-input text-[11px] py-1 px-2 w-16" min="0" />
+                                                    </td>
+                                                    <td className="py-2 px-2">
+                                                        <input type="number" value={tier.minActive} onChange={(e) => handleUpdateIbTier(i, 'minActive', e.target.value)}
+                                                            className="glass-input text-[11px] py-1 px-2 w-20" min="0" />
+                                                    </td>
+                                                    <td className="py-2 px-2">
+                                                        <input type="number" value={tier.minDeposit} onChange={(e) => handleUpdateIbTier(i, 'minDeposit', e.target.value)}
+                                                            className="glass-input text-[11px] py-1 px-2 w-28" min="0" />
+                                                    </td>
+                                                    <td className="py-2 px-2">
+                                                        <input type="number" value={tier.dailySalary} onChange={(e) => handleUpdateIbTier(i, 'dailySalary', e.target.value)}
+                                                            className="glass-input text-[11px] py-1 px-2 w-24" min="0" />
+                                                    </td>
+                                                    <td className="py-2 px-2 text-center">
+                                                        <button onClick={() => handleRemoveIbTier(i)} className="text-neon-red hover:text-neon-red/80 transition-colors">
+                                                            <XCircleIcon className="w-4 h-4" />
+                                                        </button>
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                                <div className="flex gap-2 mt-4">
+                                    <button onClick={handleAddIbTier} className="btn-ghost text-xs px-3 py-1.5">+ Add Tier</button>
+                                    <div className="flex-1" />
+                                    <button onClick={handleCancelEditIb} disabled={processing} className="btn-ghost text-xs px-4 py-2">Cancel</button>
+                                    <button onClick={handleSaveIbTiers} disabled={processing} className="btn-glow text-xs px-4 py-2">
+                                        {processing ? 'Saving...' : 'Save Tiers'}
+                                    </button>
+                                </div>
+                            </>
+                        ) : (
+                            /* Read-only Table */
+                            <div className="overflow-x-auto -mx-2">
+                                <table className="w-full text-[11px]">
+                                    <thead>
+                                        <tr className="text-text-muted uppercase tracking-wider border-b border-glass-border">
+                                            <th className="text-left py-2 px-2">#</th>
+                                            <th className="text-left py-2 px-2">Direct</th>
+                                            <th className="text-left py-2 px-2">Active Members</th>
+                                            <th className="text-left py-2 px-2">Team Deposit</th>
+                                            <th className="text-right py-2 px-2">Daily IB Salary</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {ibTiers.map((tier, i) => (
+                                            <tr key={i} className="border-b border-glass-border/50 hover:bg-glass-hover transition-colors">
+                                                <td className="py-2 px-2 text-text-muted font-semibold">{tier.id || i + 1}</td>
+                                                <td className="py-2 px-2 font-semibold text-neon-cyan">{tier.minDirect}</td>
+                                                <td className="py-2 px-2 font-semibold">{tier.minActive.toLocaleString()}</td>
+                                                <td className="py-2 px-2 text-text-secondary">₹{tier.minDeposit.toLocaleString()}</td>
+                                                <td className="py-2 px-2 text-right font-bold text-neon-green">₹{tier.dailySalary.toLocaleString()}</td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        )}
+                    </div>
+
                     {/* How it works */}
                     <div className="glass-card">
                         <h3 className="text-sm font-bold mb-3 flex items-center gap-2">
@@ -1228,7 +1387,8 @@ export default function AdminPage() {
                             <li className="flex items-start gap-2"><span className="text-warning">•</span> Direct referral bonus: 3% of referred user&apos;s <strong>first deposit</strong> (one-time, paid on first trade)</li>
                             <li className="flex items-start gap-2"><span className="text-warning">•</span> 6-level commission: Paid to upline chain on <strong>each trade</strong> by downline users</li>
                             <li className="flex items-start gap-2"><span className="text-warning">•</span> All bonuses/commissions are credited instantly to wallet balance</li>
-                            <li className="flex items-start gap-2"><span className="text-warning">•</span> Changes to rates apply to future transactions only</li>
+                            <li className="flex items-start gap-2"><span className="text-warning">•</span> IB Salary: Daily credit based on team milestones (6 direct + active members + team deposit)</li>
+                            <li className="flex items-start gap-2"><span className="text-warning">•</span> Active member = min 200 total trades. Changes to tiers apply to next salary run.</li>
                         </ul>
                     </div>
                 </motion.div>
