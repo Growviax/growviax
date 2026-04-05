@@ -90,6 +90,11 @@ export async function middleware(request: NextRequest) {
         return NextResponse.redirect(new URL('/login', request.url));
     }
 
+    // ✅ Allow CRON routes (NO AUTH)
+    if (pathname.startsWith('/api/cron/')) {
+        return NextResponse.next();
+    }
+
     // ═══════════ TRADING API ROUTES ═══════════
     if (pathname.startsWith('/api/')) {
         if (!token) {
