@@ -15,10 +15,11 @@ export async function POST(request: Request) {
     try {
         // Verify cron secret
         const authHeader = request.headers.get('authorization');
-        const cronSecret = process.env.CRON_SECRET;
+        // Hardcoded secret as requested
+        const cronSecret = 'a6cc373335a75edd7ab324b41640a74c31f6d92b1b5f4b1fc5537f5708141134';
 
         if (!cronSecret) {
-            console.error('[Cron/Commission] CRON_SECRET not configured in environment');
+            console.error('[Cron/Commission] CRON_SECRET not configured');
             return NextResponse.json({ error: 'Server misconfiguration' }, { status: 500 });
         }
 
