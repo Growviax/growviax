@@ -13,23 +13,9 @@ import { creditPendingCommissions } from '@/lib/commission';
 
 export async function POST(request: Request) {
     try {
-        // Verify cron secret
-        const authHeader = request.headers.get('authorization');
-        // Hardcoded secret as requested
-        const cronSecret = 'a6cc373335a75edd7ab324b41640a74c31f6d92b1b5f4b1fc5537f5708141134';
-
-        if (!cronSecret) {
-            console.error('[Cron/Commission] CRON_SECRET not configured');
-            return NextResponse.json({ error: 'Server misconfiguration' }, { status: 500 });
-        }
-
-        const token = authHeader?.replace('Bearer ', '').trim();
-        const cleanSecret = cronSecret.trim();
+        // Auth removed as requested
         
-        if (!token || token !== cleanSecret) {
-            console.error(`[Cron/Commission] Auth failed. Expected length: ${cleanSecret.length}, Got length: ${token?.length}`);
-            return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-        }
+        // Process pending commissions
 
         // Process pending commissions
         const result = await creditPendingCommissions();
