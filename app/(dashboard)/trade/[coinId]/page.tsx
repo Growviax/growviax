@@ -90,6 +90,10 @@ export default function TradePage() {
     // Map of tradeId → status for detecting pending → won/lost transitions
     const prevTradeStatusMap = useRef<Record<number, string>>({});
 
+    /* ── server time drift for synchronized countdown ─── */
+    const serverDriftRef = useRef<number>(0); // ms: serverTime - clientTime
+    const getSyncedNow = useCallback(() => Date.now() + serverDriftRef.current, []);
+
     /* ── chart state ────────────────────────────────── */
     const chartRef = useRef<HTMLDivElement>(null);
     const chartInstance = useRef<any>(null);
@@ -116,10 +120,19 @@ export default function TradePage() {
 
     const fetchRound = useCallback(async () => {
         try {
-            const res = await axios.get(`/api/bids/round?coinId=${coinId}`);
+            const beforeFetch = Date.now();
+            const res = await axios.get(`/api/bids/round?coinId=${coinId}&duration=${tradeDuration}`);
+            const afterFetch = Date.now();
+            const networkLatency = (afterFetch - beforeFetch) / 2;
+
+            // Calculate server time drift
+            if (res.data.serverTime) {
+                serverDriftRef.current = res.data.serverTime - afterFetch + networkLatency;
+            }
+
             setRound(res.data.round);
         } catch { }
-    }, [coinId]);
+    }, [coinId, tradeDuration]);
 
     const fetchTrades = useCallback(async () => {
         try {
@@ -142,28 +155,30 @@ export default function TradePage() {
         } catch { }
     }, [coinId]);
 
-    const resolveRounds = useCallback(async () => {
-        try { await axios.post('/api/bids/resolve'); } catch { }
-    }, []);
+    // NOTE: resolveRounds removed — resolution now happens server-side
+    // when any user polls /api/bids/round (auto-resolve in round endpoint)
 
     useEffect(() => {
         fetchCoinData(); fetchRound(); fetchTrades(); fetchWalletBalance(); fetchRoundHistory();
         const priceInterval = setInterval(fetchCoinData, 10000);
-        const roundInterval = setInterval(() => { fetchRound(); resolveRounds(); }, 5000);
+        // Poll round every 2s for tight sync (server auto-resolves expired rounds)
+        const roundInterval = setInterval(fetchRound, 2000);
         const balanceInterval = setInterval(fetchWalletBalance, 15000);
         const historyInterval = setInterval(fetchRoundHistory, 10000);
         return () => { clearInterval(priceInterval); clearInterval(roundInterval); clearInterval(balanceInterval); clearInterval(historyInterval); };
-    }, [fetchCoinData, fetchRound, fetchTrades, fetchWalletBalance, fetchRoundHistory, resolveRounds]);
+    }, [fetchCoinData, fetchRound, fetchTrades, fetchWalletBalance, fetchRoundHistory]);
 
-    /* ── countdown & result logic ─────────────────── */
+    /* ── countdown & result logic (drift-adjusted) ── */
     useEffect(() => {
         if (!round) { setTimeLeft(tradeDuration); return; }
         const interval = setInterval(() => {
             const endTime = new Date(round.endTime).getTime();
-            const remaining = Math.max(0, Math.ceil((endTime - Date.now()) / 1000));
+            // Use drift-adjusted "now" so all clients compute the same remaining time
+            const syncedNow = getSyncedNow();
+            const remaining = Math.max(0, Math.ceil((endTime - syncedNow) / 1000));
             setTimeLeft(remaining);
 
-            // Trigger countdown popup at 10 seconds for ALL users (not just those with open trades)
+            // Trigger countdown popup at 10 seconds for ALL users
             if (remaining <= 10 && remaining > 0 && !countdownTriggered) {
                 setShowCountdown(true);
                 setCountdownTriggered(true);
@@ -171,16 +186,18 @@ export default function TradePage() {
 
             if (remaining <= 0) {
                 setShowCountdown(false);
+                // Server resolves on next poll; just refresh data
                 setTimeout(async () => {
-                    await resolveRounds();
-                    await fetchTrades();
                     await fetchRound();
+                    await fetchTrades();
+                    await fetchWalletBalance();
+                    await fetchRoundHistory();
                     setCountdownTriggered(false);
                 }, 1500);
             }
-        }, 1000);
+        }, 200); // 200ms for smoother countdown transitions
         return () => clearInterval(interval);
-    }, [round, fetchRound, fetchTrades, resolveRounds, tradeDuration, trades, countdownTriggered]);
+    }, [round, fetchRound, fetchTrades, fetchWalletBalance, fetchRoundHistory, tradeDuration, countdownTriggered, getSyncedNow]);
 
     /* ── Detect result: only when a trade flips from pending → won/lost ─── */
     useEffect(() => {

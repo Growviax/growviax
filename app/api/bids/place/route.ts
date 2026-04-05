@@ -3,6 +3,22 @@ import { getUserIdFromRequest } from '@/lib/user';
 import { query, queryOne } from '@/lib/db';
 
 const TRADE_FEE_RATE = 0.03; // 3%
+const VALID_DURATIONS = [33, 60];
+const MIN_BID_WINDOW = 10; // Don't allow bids in last 10 seconds
+
+/**
+ * Get the deterministic time slot (same logic as round/route.ts)
+ */
+function getCurrentTimeSlot(durationSeconds: number): { slotStart: Date; slotEnd: Date } {
+    const nowEpoch = Math.floor(Date.now() / 1000);
+    const slotNumber = Math.floor(nowEpoch / durationSeconds);
+    const slotStartEpoch = slotNumber * durationSeconds;
+    const slotEndEpoch = (slotNumber + 1) * durationSeconds;
+    return {
+        slotStart: new Date(slotStartEpoch * 1000),
+        slotEnd: new Date(slotEndEpoch * 1000),
+    };
+}
 
 // Place a bid
 export async function POST(request: Request) {
@@ -30,9 +46,17 @@ export async function POST(request: Request) {
             return NextResponse.json({ error: 'Amount must be greater than 0' }, { status: 400 });
         }
 
-        // Validate duration (default 33 seconds)
-        const validDurations = [33, 60];
-        const roundDuration = validDurations.includes(duration) ? duration : 33;
+        // Validate duration
+        const roundDuration = VALID_DURATIONS.includes(duration) ? duration : 33;
+
+        // Calculate the deterministic time slot for this duration
+        const { slotStart, slotEnd } = getCurrentTimeSlot(roundDuration);
+
+        // Check if we're in the last 10 seconds (betting closed)
+        const remainingSeconds = Math.ceil((slotEnd.getTime() - Date.now()) / 1000);
+        if (remainingSeconds <= MIN_BID_WINDOW) {
+            return NextResponse.json({ error: `Betting is closed for this round (${remainingSeconds}s remaining)` }, { status: 400 });
+        }
 
         // Calculate 3% trading fee
         const tradingFee = Math.round(amount * TRADE_FEE_RATE * 100000000) / 100000000;
@@ -48,25 +72,31 @@ export async function POST(request: Request) {
             return NextResponse.json({ error: 'Insufficient balance' }, { status: 400 });
         }
 
-        // Get or create current round with matching duration
-        // Match round by checking if end_time - start_time is close to the requested duration
+        // Find the current deterministic round (must match time slot)
         let round = await queryOne<any>(
-            `SELECT * FROM bid_rounds WHERE coin_id = ? AND status = "open" AND end_time > NOW()
-             AND TIMESTAMPDIFF(SECOND, start_time, end_time) BETWEEN ? AND ?
+            `SELECT * FROM bid_rounds WHERE coin_id = ? AND status = 'open'
+             AND ABS(TIMESTAMPDIFF(SECOND, start_time, ?)) <= 2
+             AND ABS(TIMESTAMPDIFF(SECOND, end_time, ?)) <= 2
              LIMIT 1`,
-            [coinId, roundDuration - 5, roundDuration + 5]
+            [coinId, slotStart, slotEnd]
         );
 
         if (!round) {
-            // Create new round with specified duration
+            // Create the round for this time slot
             await query(
-                'INSERT INTO bid_rounds (coin_id, start_time, end_time) VALUES (?, NOW(), DATE_ADD(NOW(), INTERVAL ? SECOND))',
-                [coinId, roundDuration]
+                'INSERT INTO bid_rounds (coin_id, start_time, end_time) VALUES (?, ?, ?)',
+                [coinId, slotStart, slotEnd]
             );
             round = await queryOne<any>(
-                'SELECT * FROM bid_rounds WHERE coin_id = ? AND status = "open" ORDER BY id DESC LIMIT 1',
-                [coinId]
+                `SELECT * FROM bid_rounds WHERE coin_id = ? AND status = 'open'
+                 AND ABS(TIMESTAMPDIFF(SECOND, start_time, ?)) <= 2
+                 ORDER BY id DESC LIMIT 1`,
+                [coinId, slotStart]
             );
+        }
+
+        if (!round) {
+            return NextResponse.json({ error: 'Could not find or create round' }, { status: 500 });
         }
 
         // Deduct full amount (bid + fee) from user balance

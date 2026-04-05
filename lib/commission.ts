@@ -1,6 +1,13 @@
 /**
  * Commission calculation module
  * 6-Level Trading Commission + Direct Referral Bonus
+ * 
+ * COMMISSION FLOW:
+ *   Trade happens → commissions staged to `pending_commissions` table (NOT credited instantly)
+ *   Midnight IST cron → `creditPendingCommissions()` batches all pending → credits wallet + records transactions
+ * 
+ * REFERRAL BONUS: still credited instantly (one-time on first trade)
+ * 
  * Rates are configurable via platform_settings
  */
 import { query, queryOne } from '@/lib/db';
@@ -60,6 +67,7 @@ async function getCommissionLevels(): Promise<{ level: number; rate: number }[]>
 /**
  * Process referral bonus for direct referrer (ONE-TIME on first trade)
  * Bonus = 3% of user's FIRST DEPOSIT amount (not trade amount)
+ * NOTE: This is still INSTANT — not batched.
  */
 export async function processReferralBonus(tradingUserId: number, _tradeAmount: number): Promise<void> {
     try {
@@ -106,7 +114,7 @@ export async function processReferralBonus(tradingUserId: number, _tradeAmount: 
         const bonus = Math.round(depositAmount * bonusRate * 100) / 100;
         if (bonus <= 0) return;
 
-        // Credit referral bonus to referrer's wallet
+        // Credit referral bonus to referrer's wallet (INSTANT)
         await query('UPDATE users SET wallet_balance = wallet_balance + ? WHERE id = ?', [bonus, referrer.id]);
 
         // Record in referral_earnings table
@@ -137,6 +145,8 @@ export async function processReferralBonus(tradingUserId: number, _tradeAmount: 
 
 /**
  * Process 6-level commission for upline chain
+ * CHANGED: Now stages commissions in `pending_commissions` table instead of crediting instantly.
+ * Commissions are credited at midnight IST via `creditPendingCommissions()`.
  */
 export async function processCommission(tradingUserId: number, tradeAmount: number): Promise<void> {
     try {
@@ -174,10 +184,18 @@ export async function processCommission(tradingUserId: number, tradeAmount: numb
                 continue;
             }
 
-            // Credit commission to upline's wallet
-            await query('UPDATE users SET wallet_balance = wallet_balance + ? WHERE id = ?', [commission, uplineUser.id]);
+            // ──── STAGE commission in pending_commissions (NOT instant credit) ────
+            try {
+                await query(
+                    `INSERT INTO pending_commissions (user_id, from_user_id, level, trade_amount, commission_amount, status) 
+                     VALUES (?, ?, ?, ?, ?, 'pending')`,
+                    [uplineUser.id, tradingUserId, level, tradeAmount, commission]
+                );
+            } catch (err) {
+                console.error('[Commission] Failed to stage pending commission:', err);
+            }
 
-            // Store in commission_history table (if it exists)
+            // Store in commission_history table (if it exists) — for audit trail
             try {
                 await query(
                     'INSERT INTO commission_history (user_id, from_user_id, level, trade_amount, commission_amount) VALUES (?, ?, ?, ?, ?)',
@@ -185,32 +203,79 @@ export async function processCommission(tradingUserId: number, tradeAmount: numb
                 );
             } catch { }
 
-            // Record in referral_earnings for unified income history
-            try {
-                await query(
-                    'INSERT INTO referral_earnings (user_id, from_user_id, amount, type, level) VALUES (?, ?, ?, ?, ?)',
-                    [uplineUser.id, tradingUserId, commission, 'commission', level]
-                );
-            } catch {
-                // Fallback without type/level columns
-                try {
-                    await query(
-                        'INSERT INTO referral_earnings (user_id, from_user_id, amount) VALUES (?, ?, ?)',
-                        [uplineUser.id, tradingUserId, commission]
-                    );
-                } catch { }
-            }
-
-            // Record as transaction
-            await query(
-                'INSERT INTO transactions (user_id, type, amount, status, notes) VALUES (?, "commission", ?, "completed", ?)',
-                [uplineUser.id, commission, `Level ${level} commission (${(rate * 100).toFixed(2)}%) from user #${tradingUserId}`]
-            );
-
             // Move up the chain
             currentUserId = uplineUser.id;
         }
     } catch (error) {
         console.error('Commission processing error:', error);
     }
+}
+
+/**
+ * Credit all pending commissions to user wallets.
+ * Called by cron at midnight IST.
+ * 
+ * Groups pending commissions by user, credits wallet_balance, 
+ * records transactions + referral_earnings, marks as credited.
+ */
+export async function creditPendingCommissions(): Promise<{ usersProcessed: number; totalAmount: number; recordsProcessed: number }> {
+    let usersProcessed = 0;
+    let totalAmount = 0;
+    let recordsProcessed = 0;
+
+    try {
+        // Get all pending commissions grouped by user
+        const pendingByUser = await query<any[]>(
+            `SELECT user_id, 
+                    SUM(commission_amount) as total_commission, 
+                    COUNT(*) as record_count
+             FROM pending_commissions 
+             WHERE status = 'pending' 
+             GROUP BY user_id`
+        );
+
+        if (!pendingByUser || pendingByUser.length === 0) {
+            return { usersProcessed: 0, totalAmount: 0, recordsProcessed: 0 };
+        }
+
+        for (const row of pendingByUser) {
+            const userId = row.user_id;
+            const totalCommission = Number(row.total_commission) || 0;
+            const count = Number(row.record_count) || 0;
+
+            if (totalCommission <= 0) continue;
+
+            // Credit wallet balance
+            await query('UPDATE users SET wallet_balance = wallet_balance + ? WHERE id = ?', [totalCommission, userId]);
+
+            // Record as a single consolidated transaction
+            await query(
+                'INSERT INTO transactions (user_id, type, amount, status, notes) VALUES (?, "commission", ?, "completed", ?)',
+                [userId, totalCommission, `Daily commission batch: ${count} commissions totaling ₹${totalCommission.toFixed(4)} credited at midnight`]
+            );
+
+            // Record in referral_earnings for unified income history
+            try {
+                await query(
+                    'INSERT INTO referral_earnings (user_id, from_user_id, amount, type, level) VALUES (?, ?, ?, ?, ?)',
+                    [userId, userId, totalCommission, 'commission', null]
+                );
+            } catch { }
+
+            // Mark all pending commissions for this user as credited
+            await query(
+                `UPDATE pending_commissions SET status = 'credited', credited_at = NOW() 
+                 WHERE user_id = ? AND status = 'pending'`,
+                [userId]
+            );
+
+            usersProcessed++;
+            totalAmount += totalCommission;
+            recordsProcessed += count;
+        }
+    } catch (error) {
+        console.error('[Commission Batch] Error crediting pending commissions:', error);
+    }
+
+    return { usersProcessed, totalAmount, recordsProcessed };
 }
