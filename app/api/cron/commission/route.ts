@@ -15,7 +15,7 @@ export async function POST(request: Request) {
     try {
         // Verify cron secret
         const authHeader = request.headers.get('authorization');
-        const cronSecret = process.env.CRON_SECRET?.trim();
+        const cronSecret = process.env.CRON_SECRET;
 
         if (!cronSecret) {
             console.error('[Cron/Commission] CRON_SECRET not configured in environment');
