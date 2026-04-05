@@ -33,7 +33,7 @@ export async function POST(request: Request) {
         // Determine transaction type based on creditType
         const txType = creditType === 'ib_bonus' ? 'ib_bonus'
             : creditType === 'referral_bonus' ? 'referral_bonus'
-            : adjustAmount >= 0 ? 'deposit' : 'withdrawal';
+            : adjustAmount >= 0 ? 'admin_credit' : 'withdrawal';
 
         const notePrefix = creditType === 'ib_bonus' ? 'Admin IB Bonus Credit'
             : creditType === 'referral_bonus' ? 'Admin Referral Bonus Credit'
