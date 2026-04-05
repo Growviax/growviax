@@ -23,7 +23,10 @@ export async function POST(request: Request) {
         }
 
         const token = authHeader?.replace('Bearer ', '').trim();
-        if (!token || token !== cronSecret) {
+        const cleanSecret = cronSecret.trim();
+        
+        if (!token || token !== cleanSecret) {
+            console.error(`[Cron/Commission] Auth failed. Expected length: ${cleanSecret.length}, Got length: ${token?.length}`);
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
         }
 
