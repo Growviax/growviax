@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Host: localhost
--- Generation Time: Apr 05, 2026 at 05:13 PM
+-- Generation Time: Apr 06, 2026 at 06:05 AM
 -- Server version: 10.4.28-MariaDB
 -- PHP Version: 8.2.4
 
@@ -539,6 +539,24 @@ INSERT INTO `otp_codes` (`id`, `email`, `code`, `expires_at`, `is_used`, `create
 -- --------------------------------------------------------
 
 --
+-- Table structure for table `pending_commissions`
+--
+
+CREATE TABLE `pending_commissions` (
+  `id` int(11) NOT NULL,
+  `user_id` int(11) NOT NULL,
+  `from_user_id` int(11) NOT NULL,
+  `level` int(11) NOT NULL,
+  `trade_amount` decimal(18,8) NOT NULL,
+  `commission_amount` decimal(18,8) NOT NULL,
+  `status` enum('pending','credited') DEFAULT 'pending',
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `credited_at` timestamp NULL DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
 -- Table structure for table `platform_risk_ledger`
 --
 
@@ -679,7 +697,7 @@ CREATE TABLE `ticket_replies` (
 CREATE TABLE `transactions` (
   `id` int(11) NOT NULL,
   `user_id` int(11) NOT NULL,
-  `type` enum('deposit','withdrawal','bid_loss','bid_win','trading_fee','commission','referral_bonus','ib_bonus') NOT NULL DEFAULT 'deposit',
+  `type` enum('deposit','withdrawal','bid_loss','bid_win','trading_fee','commission','referral_bonus','ib_bonus','admin_credit') NOT NULL DEFAULT 'deposit',
   `amount` decimal(18,8) NOT NULL,
   `wallet_address` varchar(100) DEFAULT NULL,
   `status` enum('pending','completed','rejected') DEFAULT 'pending',
@@ -1014,6 +1032,14 @@ ALTER TABLE `otp_codes`
   ADD KEY `idx_email_code` (`email`,`code`);
 
 --
+-- Indexes for table `pending_commissions`
+--
+ALTER TABLE `pending_commissions`
+  ADD PRIMARY KEY (`id`),
+  ADD KEY `idx_status` (`status`),
+  ADD KEY `idx_user` (`user_id`);
+
+--
 -- Indexes for table `platform_risk_ledger`
 --
 ALTER TABLE `platform_risk_ledger`
@@ -1242,6 +1268,12 @@ ALTER TABLE `otp_codes`
   MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=8;
 
 --
+-- AUTO_INCREMENT for table `pending_commissions`
+--
+ALTER TABLE `pending_commissions`
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
+
+--
 -- AUTO_INCREMENT for table `platform_risk_ledger`
 --
 ALTER TABLE `platform_risk_ledger`
@@ -1381,6 +1413,12 @@ ALTER TABLE `fd_user_profit_shares`
   ADD CONSTRAINT `fd_user_profit_shares_ibfk_1` FOREIGN KEY (`distribution_id`) REFERENCES `fd_profit_distributions` (`id`) ON DELETE CASCADE,
   ADD CONSTRAINT `fd_user_profit_shares_ibfk_2` FOREIGN KEY (`user_id`) REFERENCES `fd_users` (`id`) ON DELETE CASCADE,
   ADD CONSTRAINT `fd_user_profit_shares_ibfk_3` FOREIGN KEY (`fd_deposit_id`) REFERENCES `fd_deposits` (`id`) ON DELETE CASCADE;
+
+--
+-- Constraints for table `pending_commissions`
+--
+ALTER TABLE `pending_commissions`
+  ADD CONSTRAINT `pending_commissions_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE;
 
 --
 -- Constraints for table `referral_earnings`

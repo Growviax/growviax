@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getUserIdFromRequest } from '@/lib/user';
 import { query, queryOne } from '@/lib/db';
+import { POST as resolveRounds } from '@/app/api/bids/resolve/route';
 
 /**
  * Deterministic Server-Driven Round System
@@ -47,20 +48,17 @@ function getCurrentTimeSlot(durationSeconds: number): { slotStart: Date; slotEnd
 /**
  * Auto-resolve any expired rounds for this coin.
  * Called before returning round data so resolution happens server-side.
+ * Directly invokes the resolve handler (no HTTP request needed).
  */
 async function autoResolveExpired(coinId: string): Promise<void> {
     try {
-        // Just trigger the resolve endpoint logic inline for expired rounds
-        // Import would be circular, so we do a lightweight check here
         const expired = await query<any[]>(
             'SELECT id FROM bid_rounds WHERE coin_id = ? AND status = "open" AND end_time <= NOW()',
             [coinId]
         );
         if (expired && expired.length > 0) {
-            // Call resolve endpoint internally
             try {
-                const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
-                await fetch(`${baseUrl}/api/bids/resolve`, { method: 'POST' });
+                await resolveRounds();
             } catch { }
         }
     } catch { }
