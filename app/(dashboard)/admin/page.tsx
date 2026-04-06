@@ -82,6 +82,10 @@ export default function AdminPage() {
     const [editCommissionTexts, setEditCommissionTexts] = useState<string[]>([]);
     const [isEditingCommission, setIsEditingCommission] = useState(false);
 
+    /* ── Commission disbursement state ── */
+    const [commissionPreview, setCommissionPreview] = useState<any>(null);
+    const [commissionDisbursing, setCommissionDisbursing] = useState(false);
+
     /* ── IB milestone settings state ──── */
     const [ibTiers, setIbTiers] = useState<any[]>([]);
     const [editIbTiers, setEditIbTiers] = useState<any[]>([]);
@@ -154,6 +158,13 @@ export default function AdminPage() {
         } catch { } finally { setLoading(false); }
     }, []);
 
+    const fetchCommissionPreview = useCallback(async () => {
+        try {
+            const res = await axios.get('/api/admin/commission');
+            setCommissionPreview(res.data);
+        } catch { }
+    }, []);
+
     const fetchIbTiers = useCallback(async () => {
         setIbLoading(true);
         try {
@@ -169,7 +180,7 @@ export default function AdminPage() {
         else if (tab === 'support') fetchTickets();
         else if (tab === 'trading') fetchTradeControl();
         else if (tab === 'upi') fetchUpiAccounts();
-        else if (tab === 'referral') { fetchReferralSettings(); fetchIbTiers(); }
+        else if (tab === 'referral') { fetchReferralSettings(); fetchIbTiers(); fetchCommissionPreview(); }
         else setLoading(false);
     }, [tab, fetchUsers, fetchTransactions, fetchTickets, fetchTradeControl, fetchDepositRequests, fetchUpiAccounts, fetchReferralSettings, fetchIbTiers]);
 
@@ -252,6 +263,17 @@ export default function AdminPage() {
             const res = await axios.post('/api/salary/check');
             toast.success(res.data.message);
         } catch { toast.error('Failed to run salary check'); }
+    };
+
+    const handleDisburseCommissions = async () => {
+        setCommissionDisbursing(true);
+        try {
+            const res = await axios.post('/api/admin/commission');
+            toast.success(res.data.message);
+            fetchCommissionPreview();
+        } catch (err: any) {
+            toast.error(err.response?.data?.error || 'Failed to disburse commissions');
+        } finally { setCommissionDisbursing(false); }
     };
 
     const handleDepositAction = async (requestId: number, action: 'approve' | 'reject') => {
@@ -1189,6 +1211,47 @@ export default function AdminPage() {
                             <p className="text-xl font-bold text-neon-purple">₹{(referralStats?.totalCommissionPaid || 0).toFixed(2)}</p>
                             <p className="text-[10px] text-text-muted uppercase">Commission Paid</p>
                         </div>
+                    </div>
+
+                    {/* Commission Disbursement */}
+                    <div className="glass-card">
+                        <h3 className="text-sm font-bold mb-4 flex items-center gap-2">
+                            <BanknotesIcon className="w-4 h-4 text-neon-green" /> Daily Commission Disbursement
+                        </h3>
+                        {commissionPreview && (
+                            <div className="space-y-3">
+                                <div className="grid grid-cols-2 gap-3">
+                                    <div className="inner-card text-center">
+                                        <p className="text-lg font-extrabold text-warning">₹{commissionPreview.pending?.amount?.toFixed(2) || '0.00'}</p>
+                                        <p className="text-[10px] text-text-muted">Pending ({commissionPreview.pending?.users || 0} users, {commissionPreview.pending?.records || 0} records)</p>
+                                    </div>
+                                    <div className="inner-card text-center">
+                                        <p className="text-lg font-extrabold text-neon-green">₹{commissionPreview.todayDisbursed?.amount?.toFixed(2) || '0.00'}</p>
+                                        <p className="text-[10px] text-text-muted">Today Disbursed ({commissionPreview.todayDisbursed?.users || 0} users)</p>
+                                    </div>
+                                </div>
+                                {commissionPreview.lastDisbursedAt && (
+                                    <p className="text-[10px] text-text-muted text-center">Last disbursed: {dayjs(commissionPreview.lastDisbursedAt).format('MMM D, YYYY HH:mm')}</p>
+                                )}
+                                <button
+                                    onClick={handleDisburseCommissions}
+                                    disabled={commissionDisbursing || (commissionPreview.pending?.records === 0)}
+                                    className={clsx('w-full py-3 rounded-2xl font-bold text-sm transition-all',
+                                        commissionPreview.pending?.records > 0
+                                            ? 'btn-glow'
+                                            : 'bg-glass text-text-muted cursor-not-allowed'
+                                    )}
+                                >
+                                    {commissionDisbursing ? 'Disbursing...' : commissionPreview.pending?.records > 0
+                                        ? `Disburse ₹${commissionPreview.pending?.amount?.toFixed(2)} Now`
+                                        : 'No Pending Commissions'}
+                                </button>
+                                <p className="text-[10px] text-text-muted text-center">Auto-runs daily at 12:00 AM via cron. Use button above for manual trigger.</p>
+                            </div>
+                        )}
+                        {!commissionPreview && (
+                            <p className="text-sm text-text-muted text-center py-4">Loading commission data...</p>
+                        )}
                     </div>
 
                     {/* Referral Rate Setting */}

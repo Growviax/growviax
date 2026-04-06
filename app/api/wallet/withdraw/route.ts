@@ -61,12 +61,12 @@ export async function POST(request: Request) {
             return NextResponse.json({ error: `Insufficient balance. Required: ₹${inrAmount.toFixed(2)}, Available: ₹${Number(user?.wallet_balance || 0).toFixed(2)}` }, { status: 400 });
         }
 
-        // Check trade volume requirement: user must trade at least their total deposit amount
-        const depositRow = await queryOne<any>(
-            'SELECT COALESCE(SUM(amount), 0) as total FROM transactions WHERE user_id = ? AND type = "deposit" AND status = "completed"',
+        // Check trade volume requirement: user must trade at least their FIRST deposit amount
+        const firstDepositRow = await queryOne<any>(
+            'SELECT amount FROM transactions WHERE user_id = ? AND type = "deposit" AND status = "completed" ORDER BY created_at ASC LIMIT 1',
             [userId]
         );
-        const totalDeposited = parseFloat(depositRow?.total || '0');
+        const firstDepositAmount = parseFloat(firstDepositRow?.amount || '0');
 
         const tradedRow = await queryOne<any>(
             'SELECT COALESCE(SUM(amount), 0) as total FROM transactions WHERE user_id = ? AND type = "bid_loss" AND status = "completed"',
@@ -74,10 +74,10 @@ export async function POST(request: Request) {
         );
         const totalTraded = parseFloat(tradedRow?.total || '0');
 
-        if (totalTraded < totalDeposited) {
-            const remaining = Math.ceil(totalDeposited - totalTraded);
+        if (firstDepositAmount > 0 && totalTraded < firstDepositAmount) {
+            const remaining = Math.ceil(firstDepositAmount - totalTraded);
             return NextResponse.json({
-                error: `You need to trade ₹${remaining.toLocaleString()} more before you can withdraw. Total deposit: ₹${totalDeposited.toLocaleString()}, Traded: ₹${Math.floor(totalTraded).toLocaleString()}`
+                error: `You need to trade ₹${remaining.toLocaleString()} more before you can withdraw. First deposit: ₹${firstDepositAmount.toLocaleString()}, Traded: ₹${Math.floor(totalTraded).toLocaleString()}`
             }, { status: 400 });
         }
 

@@ -24,24 +24,47 @@ export async function GET(request: Request) {
             [userId]
         );
 
-        // Get trade volume data for withdrawal requirement
-        const depositRow = await queryOne<any>(
-            'SELECT COALESCE(SUM(amount), 0) as total FROM transactions WHERE user_id = ? AND type = "deposit" AND status = "completed"',
+        // Get first deposit amount (for withdrawal trade requirement)
+        const firstDepositRow = await queryOne<any>(
+            'SELECT amount FROM transactions WHERE user_id = ? AND type = "deposit" AND status = "completed" ORDER BY created_at ASC LIMIT 1',
             [userId]
         );
+        const firstDeposit = parseFloat(firstDepositRow?.amount || '0');
+
+        // Get total traded (bid losses = amount risked in trades)
         const tradedRow = await queryOne<any>(
             'SELECT COALESCE(SUM(amount), 0) as total FROM transactions WHERE user_id = ? AND type = "bid_loss" AND status = "completed"',
             [userId]
         );
-
-        const totalDeposited = parseFloat(depositRow?.total || '0');
         const totalTraded = parseFloat(tradedRow?.total || '0');
+
+        // Trade wallet = deposits + bid_wins - bid_losses - trading_fees - withdrawals
+        const tradeWalletRow = await queryOne<any>(
+            `SELECT 
+                COALESCE(SUM(CASE WHEN type IN ('deposit', 'bid_win') THEN amount ELSE 0 END), 0) -
+                COALESCE(SUM(CASE WHEN type IN ('bid_loss', 'trading_fee', 'withdrawal') THEN amount ELSE 0 END), 0) as total
+             FROM transactions WHERE user_id = ? AND status = 'completed'
+             AND type IN ('deposit', 'bid_win', 'bid_loss', 'trading_fee', 'withdrawal')`,
+            [userId]
+        );
+        const tradeWallet = Math.max(0, parseFloat(tradeWalletRow?.total || '0'));
+
+        // Commission wallet = commissions + referral_bonus + ib_bonus + admin_credit
+        const commissionWalletRow = await queryOne<any>(
+            `SELECT COALESCE(SUM(amount), 0) as total
+             FROM transactions WHERE user_id = ? AND status = 'completed'
+             AND type IN ('commission', 'referral_bonus', 'ib_bonus', 'admin_credit')`,
+            [userId]
+        );
+        const commissionWallet = parseFloat(commissionWalletRow?.total || '0');
 
         return NextResponse.json({
             user: {
                 ...user,
-                total_deposited: totalDeposited,
+                first_deposit: firstDeposit,
                 total_traded: totalTraded,
+                trade_wallet: tradeWallet,
+                commission_wallet: commissionWallet,
             }
         });
     } catch (error: any) {

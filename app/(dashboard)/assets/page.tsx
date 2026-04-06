@@ -22,8 +22,10 @@ const USD_TO_INR = 98; // Conversion rate
 
 type WalletInfo = {
     wallet_balance: number | string;
-    total_deposited?: number;
+    first_deposit?: number;
     total_traded?: number;
+    trade_wallet?: number;
+    commission_wallet?: number;
 };
 
 type WalletTransaction = {
@@ -292,9 +294,46 @@ function AssetsContent() {
             >
                 <div className="absolute -top-16 -right-16 w-32 h-32 rounded-full bg-neon-cyan/8 blur-3xl" />
                 <div className="relative p-6">
-                    <p className="text-text-secondary text-sm font-medium mb-2">Available Balance</p>
+                    <p className="text-text-secondary text-sm font-medium mb-2">Total Balance</p>
                     <p className="stat-value neon-text mb-1">₹{Number(user?.wallet_balance || 0).toFixed(2)}</p>
                     <span className="badge-info mt-1">INR</span>
+
+                    {/* Trade Wallet + Commission Wallet Breakdown */}
+                    <div className="grid grid-cols-2 gap-3 mt-4">
+                        <div className="rounded-xl p-3 border border-neon-cyan/15" style={{ background: 'rgba(0,212,255,0.06)' }}>
+                            <p className="text-[10px] text-text-muted uppercase tracking-wider mb-1">Trade Wallet</p>
+                            <p className="text-sm font-bold text-neon-cyan">₹{Number(user?.trade_wallet || 0).toFixed(2)}</p>
+                            <p className="text-[9px] text-text-muted mt-0.5">Deposits + Trade P&L</p>
+                        </div>
+                        <div className="rounded-xl p-3 border border-neon-purple/15" style={{ background: 'rgba(168,85,247,0.06)' }}>
+                            <p className="text-[10px] text-text-muted uppercase tracking-wider mb-1">Commission Wallet</p>
+                            <p className="text-sm font-bold text-neon-purple">₹{Number(user?.commission_wallet || 0).toFixed(2)}</p>
+                            <p className="text-[9px] text-text-muted mt-0.5">IB + Referral + Commission</p>
+                        </div>
+                    </div>
+
+                    {/* Trade Requirement Info */}
+                    {(user?.first_deposit || 0) > 0 && (
+                        <div className="mt-3 rounded-xl p-2.5 border border-glass-border" style={{ background: 'rgba(255,255,255,0.03)' }}>
+                            <div className="flex items-center justify-between text-[11px]">
+                                <span className="text-text-muted">Trade Requirement</span>
+                                <span className={clsx('font-bold', (user?.total_traded || 0) >= (user?.first_deposit || 0) ? 'text-neon-green' : 'text-warning')}>
+                                    ₹{Number(user?.total_traded || 0).toFixed(0)} / ₹{Number(user?.first_deposit || 0).toFixed(0)}
+                                </span>
+                            </div>
+                            <div className="w-full h-1.5 rounded-full bg-glass mt-1.5 overflow-hidden">
+                                <div
+                                    className={clsx('h-full rounded-full transition-all', (user?.total_traded || 0) >= (user?.first_deposit || 0) ? 'bg-neon-green' : 'bg-warning')}
+                                    style={{ width: `${Math.min(100, ((user?.total_traded || 0) / (user?.first_deposit || 1)) * 100)}%` }}
+                                />
+                            </div>
+                            <p className="text-[9px] text-text-muted mt-1">
+                                {(user?.total_traded || 0) >= (user?.first_deposit || 0)
+                                    ? '✓ Withdrawal unlocked'
+                                    : `Trade ₹${Math.ceil((user?.first_deposit || 0) - (user?.total_traded || 0))} more to unlock withdrawal`}
+                            </p>
+                        </div>
+                    )}
                 </div>
             </motion.div>
 
@@ -795,12 +834,12 @@ function AssetsContent() {
                                     <div className="p-4 space-y-3">
                                         {/* Trade Requirement */}
                                         <div className="inner-card !bg-dark-surface/50">
-                                            <p className="text-[11px] text-text-muted mb-1">Trade Requirement</p>
+                                            <p className="text-[11px] text-text-muted mb-1">Trade Requirement (First Deposit)</p>
                                             <p className="text-sm text-text-secondary">
-                                                Trade <span className="text-warning font-bold">₹{Math.max(0, Math.ceil((user?.total_deposited || 0) - (user?.total_traded || 0))).toLocaleString()}</span> more to unlock
+                                                Trade <span className="text-warning font-bold">₹{Math.max(0, Math.ceil((user?.first_deposit || 0) - (user?.total_traded || 0))).toLocaleString()}</span> more to unlock
                                             </p>
                                             <div className="flex gap-4 mt-2 text-[11px] text-text-muted">
-                                                <span>Deposited: ₹{Math.floor(user?.total_deposited || 0).toLocaleString()}</span>
+                                                <span>First Deposit: ₹{Math.floor(user?.first_deposit || 0).toLocaleString()}</span>
                                                 <span>Traded: ₹{Math.floor(user?.total_traded || 0).toLocaleString()}</span>
                                             </div>
                                         </div>

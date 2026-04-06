@@ -67,7 +67,7 @@ export default function TradePage() {
     const [price, setPrice] = useState<number>(0);
     const [priceChange, setPriceChange] = useState<number>(0);
     const [direction, setDirection] = useState<'up' | 'down'>('up');
-    const [selectedAmount, setSelectedAmount] = useState<number>(10);
+    const [selectedAmount, setSelectedAmount] = useState<number>(1);
     const [multiplier, setMultiplier] = useState<number>(1);
     const [placing, setPlacing] = useState(false);
     const [round, setRound] = useState<any>(null);
@@ -186,14 +186,19 @@ export default function TradePage() {
 
             if (remaining <= 0) {
                 setShowCountdown(false);
-                // Server resolves on next poll; just refresh data
-                setTimeout(async () => {
+                // Burst-poll every 500ms for 5s to sync results across all users
+                let burst = 0;
+                const burstPoll = setInterval(async () => {
+                    burst++;
                     await fetchRound();
                     await fetchTrades();
                     await fetchWalletBalance();
-                    await fetchRoundHistory();
-                    setCountdownTriggered(false);
-                }, 1500);
+                    if (burst >= 10) {
+                        clearInterval(burstPoll);
+                        await fetchRoundHistory();
+                        setCountdownTriggered(false);
+                    }
+                }, 500);
             }
         }, 200); // 200ms for smoother countdown transitions
         return () => clearInterval(interval);
