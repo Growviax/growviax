@@ -4,34 +4,38 @@ import { query, queryOne } from '@/lib/db';
 import { POST as resolveRounds } from '@/app/api/bids/resolve/route';
 
 /**
- * Deterministic Server-Driven Round System
+ * GLOBAL Deterministic Round System (v2 — slot_number based)
  * 
- * Instead of creating rounds on-demand (which caused sync issues),
- * rounds are anchored to fixed time slots derived from epoch seconds.
+ * Every round is identified by (coin_id, slot_number, duration).
+ * slot_number = floor(epoch_seconds / duration)
  * 
- * For a 33-second round:
- *   slot = floor(epoch_seconds / 33)
- *   round_start = slot * 33
- *   round_end   = (slot + 1) * 33
+ * This is 100% deterministic — all users, all servers, all requests
+ * within the same time window compute the EXACT same slot_number.
  * 
- * Every user, regardless of when they connect, gets the SAME round
- * with the SAME start/end time. The server also returns `serverTime`
- * so clients can calculate drift and sync countdowns perfectly.
+ * The period ID displayed to users is derived from slot_number (not DB id),
+ * so even if the DB row is created at slightly different times, the
+ * period ID is always identical for the same time window.
+ * 
+ * MySQL NOW() is NEVER used for time comparisons — only JS Date.now()
+ * is used, and it's passed to MySQL as a parameter to avoid clock skew.
  */
 
 const VALID_DURATIONS = [33, 60];
 
-// Generate a unique 20-digit period ID from round id and coin
-function generatePeriodId(roundId: number, coinId: string): string {
+/**
+ * Generate a deterministic period ID from slot_number and coinId.
+ * Same slot_number + coinId = same period ID for ALL users.
+ */
+function generatePeriodId(slotNumber: number, coinId: string): string {
     const base = coinId.split('').reduce((acc, ch) => acc + ch.charCodeAt(0), 0);
-    const coinHash = String(base * 7919 + 20260308).slice(0, 15).padStart(15, '0');
-    const roundPart = String(roundId).padStart(5, '0');
-    return coinHash + roundPart;
+    const coinHash = String(base * 7919 + 20260308).slice(0, 8).padStart(8, '0');
+    const slotPart = String(slotNumber).slice(-12).padStart(12, '0');
+    return coinHash + slotPart;
 }
 
 /**
  * Get the deterministic time slot for a given duration.
- * Returns { slotStart, slotEnd } as Date objects anchored to epoch.
+ * Pure function — same input time always gives same output.
  */
 function getCurrentTimeSlot(durationSeconds: number): { slotStart: Date; slotEnd: Date; slotNumber: number } {
     const nowEpoch = Math.floor(Date.now() / 1000);
@@ -46,15 +50,15 @@ function getCurrentTimeSlot(durationSeconds: number): { slotStart: Date; slotEnd
 }
 
 /**
- * Auto-resolve any expired rounds for this coin.
- * Called before returning round data so resolution happens server-side.
- * Directly invokes the resolve handler (no HTTP request needed).
+ * Auto-resolve expired rounds using JS-computed time (NOT MySQL NOW()).
+ * Only resolves rounds whose end_time is before the current JS time.
  */
-async function autoResolveExpired(coinId: string): Promise<void> {
+async function autoResolveExpired(): Promise<void> {
     try {
+        const jsNow = new Date(Date.now());
         const expired = await query<any[]>(
-            'SELECT id FROM bid_rounds WHERE coin_id = ? AND status = "open" AND end_time <= NOW()',
-            [coinId]
+            'SELECT id FROM bid_rounds WHERE status = "open" AND end_time <= ?',
+            [jsNow]
         );
         if (expired && expired.length > 0) {
             try {
@@ -77,49 +81,36 @@ export async function GET(request: Request) {
             return NextResponse.json({ error: 'coinId required' }, { status: 400 });
         }
 
-        // Validate duration
         const duration = VALID_DURATIONS.includes(durationParam) ? durationParam : 33;
 
-        // Auto-resolve any expired rounds first (server-side resolution)
-        await autoResolveExpired(coinId);
+        // Auto-resolve expired rounds using JS time (no MySQL NOW() skew)
+        await autoResolveExpired();
 
         // Calculate the current deterministic time slot
         const { slotStart, slotEnd, slotNumber } = getCurrentTimeSlot(duration);
         const serverTime = Date.now();
 
-        // Look for an existing round that matches this exact time slot
-        // We match by checking if the round's start_time and end_time align with our slot
+        // Look up the round by EXACT slot_number match (no fuzzy TIMESTAMPDIFF)
         let round = await queryOne<any>(
             `SELECT * FROM bid_rounds 
-             WHERE coin_id = ? AND status = 'open'
-             AND ABS(TIMESTAMPDIFF(SECOND, start_time, ?)) <= 2
-             AND ABS(TIMESTAMPDIFF(SECOND, end_time, ?)) <= 2
-             ORDER BY id DESC LIMIT 1`,
-            [coinId, slotStart, slotEnd]
+             WHERE coin_id = ? AND slot_number = ? AND duration = ?
+             LIMIT 1`,
+            [coinId, slotNumber, duration]
         );
 
-        // Create if not exists
+        // Create if not exists — INSERT IGNORE handles race conditions atomically
         if (!round) {
-            try {
-                await query(
-                    'INSERT INTO bid_rounds (coin_id, start_time, end_time) VALUES (?, ?, ?)',
-                    [coinId, slotStart, slotEnd]
-                );
-                round = await queryOne<any>(
-                    `SELECT * FROM bid_rounds WHERE coin_id = ? AND status = 'open' 
-                     AND ABS(TIMESTAMPDIFF(SECOND, start_time, ?)) <= 2
-                     ORDER BY id DESC LIMIT 1`,
-                    [coinId, slotStart]
-                );
-            } catch {
-                // Another request may have created it — race condition safe
-                round = await queryOne<any>(
-                    `SELECT * FROM bid_rounds WHERE coin_id = ? AND status = 'open' 
-                     AND ABS(TIMESTAMPDIFF(SECOND, start_time, ?)) <= 2
-                     ORDER BY id DESC LIMIT 1`,
-                    [coinId, slotStart]
-                );
-            }
+            await query(
+                `INSERT IGNORE INTO bid_rounds (coin_id, slot_number, duration, start_time, end_time) 
+                 VALUES (?, ?, ?, ?, ?)`,
+                [coinId, slotNumber, duration, slotStart, slotEnd]
+            );
+            round = await queryOne<any>(
+                `SELECT * FROM bid_rounds 
+                 WHERE coin_id = ? AND slot_number = ? AND duration = ?
+                 LIMIT 1`,
+                [coinId, slotNumber, duration]
+            );
         }
 
         if (!round) {
@@ -135,10 +126,11 @@ export async function GET(request: Request) {
         return NextResponse.json({
             round: {
                 id: round.id,
-                periodId: generatePeriodId(round.id, coinId),
+                periodId: generatePeriodId(slotNumber, coinId),
                 coinId: round.coin_id,
-                startTime: round.start_time,
-                endTime: round.end_time,
+                startTime: slotStart.toISOString(),
+                endTime: slotEnd.toISOString(),
+                slotNumber,
                 duration,
                 userBid: userBid ? {
                     direction: userBid.direction,

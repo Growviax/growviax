@@ -80,8 +80,11 @@ async function processBidLoss(bid: BidRow, roundId: number, decision: OutcomeDec
 // Multi-bet: 1) Admin manual  2) Consecutive  3) Equal=random  4) Minority wins
 export async function POST() {
     try {
+        // Use JS time (not MySQL NOW()) to avoid clock skew issues
+        const jsNow = new Date(Date.now());
         const expiredRounds = await query<RoundRow[]>(
-            'SELECT * FROM bid_rounds WHERE status = "open" AND end_time <= NOW()'
+            'SELECT * FROM bid_rounds WHERE status = "open" AND end_time <= ?',
+            [jsNow]
         );
 
         if (!expiredRounds || expiredRounds.length === 0) {

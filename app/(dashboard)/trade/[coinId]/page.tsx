@@ -89,6 +89,8 @@ export default function TradePage() {
     const prevRoundIdRef = useRef<number | null>(null);
     // Map of tradeId → status for detecting pending → won/lost transitions
     const prevTradeStatusMap = useRef<Record<number, string>>({});
+    // Guard to prevent spawning duplicate burst-poll intervals
+    const burstActiveRef = useRef(false);
 
     /* ── server time drift for synchronized countdown ─── */
     const serverDriftRef = useRef<number>(0); // ms: serverTime - clientTime
@@ -171,6 +173,13 @@ export default function TradePage() {
     /* ── countdown & result logic (drift-adjusted) ── */
     useEffect(() => {
         if (!round) { setTimeLeft(tradeDuration); return; }
+
+        // Reset burst guard when we get a new round (new slot)
+        if (round.slotNumber !== prevRoundIdRef.current) {
+            burstActiveRef.current = false;
+            prevRoundIdRef.current = round.slotNumber;
+        }
+
         const interval = setInterval(() => {
             const endTime = new Date(round.endTime).getTime();
             // Use drift-adjusted "now" so all clients compute the same remaining time
@@ -184,7 +193,8 @@ export default function TradePage() {
                 setCountdownTriggered(true);
             }
 
-            if (remaining <= 0) {
+            if (remaining <= 0 && !burstActiveRef.current) {
+                burstActiveRef.current = true;
                 setShowCountdown(false);
                 // Burst-poll every 500ms for 5s to sync results across all users
                 let burst = 0;
