@@ -87,7 +87,7 @@ export default function HomePage() {
                                     <path strokeLinecap="round" strokeLinejoin="round" d="M2 20h20M5 17l4-7 4 3 6-9" />
                                 </svg>
                             </div>
-                            <h2 className="text-2xl font-extrabold text-white mb-2 group-hover:text-neon-green transition-colors">Trading</h2>
+                            <h2 className="text-2xl font-extrabold text-white mb-2 group-hover:text-neon-green transition-colors">Smart Trading</h2>
                             <p className="text-sm text-text-muted leading-relaxed">
                                 Crypto, Forex & More
                             </p>
@@ -118,9 +118,9 @@ export default function HomePage() {
                                 <path strokeLinecap="round" strokeLinejoin="round" d="M12 21v-2m0-14V3m-7 9H3m18 0h-2M5.636 5.636l1.414 1.414m11.314 11.314l-1.414-1.414M5.636 18.364l1.414-1.414M18.364 5.636l-1.414 1.414" />
                             </svg>
                         </div>
-                        <h2 className="text-2xl font-extrabold text-text-muted mb-2">Fixed Deposit</h2>
+                        <h2 className="text-2xl font-extrabold text-text-muted mb-2">Growviax Stacking Profit</h2>
                         <p className="text-sm text-text-muted leading-relaxed mb-3">
-                            Secure, low-risk returns
+                            USDT-based stacking rewards
                         </p>
                         <span className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full text-[11px] font-bold uppercase tracking-wider"
                             style={{ background: 'rgba(255,170,0,0.15)', color: '#ffaa00', border: '1px solid rgba(255,170,0,0.25)' }}>

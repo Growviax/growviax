@@ -36,7 +36,7 @@ export default function FDSidebar() {
                 </Link>
                 <span className="inline-flex items-center mt-3 px-3 py-1 rounded-full text-[11px] font-bold"
                     style={{ background: 'rgba(0,212,255,0.12)', color: '#00d4ff', border: '1px solid rgba(0,212,255,0.2)' }}>
-                    FD Platform
+                    Stacking Profit
                 </span>
             </div>
 

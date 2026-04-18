@@ -5,174 +5,228 @@ import axios from 'axios';
 import toast from 'react-hot-toast';
 import { motion } from 'framer-motion';
 import {
-    BanknotesIcon, ShieldCheckIcon, CheckCircleIcon,
-    ExclamationTriangleIcon, ArrowPathIcon,
+    BanknotesIcon,
+    ShieldCheckIcon,
+    CheckCircleIcon,
+    ExclamationTriangleIcon,
+    ArrowPathIcon,
 } from '@heroicons/react/24/outline';
+
+const DEFAULT_SETTINGS = {
+    usdtRate: 98,
+    lockMonths: 6,
+    starterMinUsdt: 50,
+    eliteMinUsdt: 1000,
+    starterMonthlyRate: 5,
+    eliteMonthlyRate: 6,
+};
 
 export default function FDInvestPage() {
     const [user, setUser] = useState<any>(null);
-    const [amount, setAmount] = useState('');
+    const [settings, setSettings] = useState(DEFAULT_SETTINGS);
+    const [amountUsdt, setAmountUsdt] = useState('');
     const [loading, setLoading] = useState(false);
     const [success, setSuccess] = useState(false);
     const [fdResult, setFdResult] = useState<any>(null);
 
     useEffect(() => {
-        axios.get('/api/fd/user').then(res => setUser(res.data.user)).catch(() => { });
+        axios.get('/api/fd/user')
+            .then((res) => {
+                setUser(res.data.user);
+                setSettings((prev) => ({ ...prev, ...(res.data.settings || {}) }));
+            })
+            .catch(() => { });
     }, []);
+
+    const amount = parseFloat(amountUsdt) || 0;
+    const isElite = amount >= settings.eliteMinUsdt;
+    const isStarter = amount >= settings.starterMinUsdt && amount < settings.eliteMinUsdt;
+    const selectedPackage = isElite
+        ? { name: 'Elite Stacking Pool', rate: settings.eliteMonthlyRate }
+        : isStarter
+            ? { name: 'Starter Stacking Pool', rate: settings.starterMonthlyRate }
+            : null;
+    const amountInr = amount * settings.usdtRate;
+    const monthlyReturnUsdt = selectedPackage ? amount * (selectedPackage.rate / 100) : 0;
+    const monthlyReturnInr = monthlyReturnUsdt * settings.usdtRate;
+    const totalReturnUsdt = monthlyReturnUsdt * settings.lockMonths;
+    const totalReturnInr = totalReturnUsdt * settings.usdtRate;
 
     const handleInvest = async (e: React.FormEvent) => {
         e.preventDefault();
-        const amt = parseFloat(amount);
-        if (!amt || amt < 1000) return toast.error('Minimum investment is ₹1,000');
-        if (amt > 50000) return toast.error('Maximum investment is ₹50,000');
+
+        if (!selectedPackage) {
+            return toast.error(`Minimum investment is ${settings.starterMinUsdt} USDT`);
+        }
 
         setLoading(true);
         try {
-            const res = await axios.post('/api/fd/invest', { amount: amt });
+            const res = await axios.post('/api/fd/invest', { amountUsdt: amount });
             toast.success(res.data.message);
             setFdResult(res.data.fd);
             setSuccess(true);
-            // Refresh user data
+
             const userRes = await axios.get('/api/fd/user');
             setUser(userRes.data.user);
+            setSettings((prev) => ({ ...prev, ...(userRes.data.settings || {}) }));
         } catch (error: any) {
             toast.error(error.response?.data?.error || 'Investment failed');
-        } finally { setLoading(false); }
+        } finally {
+            setLoading(false);
+        }
     };
-
-    const quickAmounts = [1000, 5000, 10000, 25000, 50000];
-    const amt = parseFloat(amount) || 0;
-    const monthlyReturn = amt * 0.05;
-    const totalReturn = amt * 0.10;
 
     return (
         <div className="space-y-6">
             <div>
-                <h1 className="text-2xl font-extrabold tracking-tight">Create FD Investment</h1>
-                <p className="text-xs text-text-muted mt-1">Lock your funds and earn guaranteed returns</p>
+                <h1 className="text-2xl font-extrabold tracking-tight">Create Stacking Package</h1>
+                <p className="text-xs text-text-muted mt-1">Choose a USDT package and lock it for {settings.lockMonths} months</p>
             </div>
 
             {success && fdResult ? (
-                <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}
-                    className="glass-card text-center py-10">
+                <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="glass-card text-center py-10">
                     <div className="w-16 h-16 rounded-full bg-neon-green/15 flex items-center justify-center mx-auto mb-5">
                         <CheckCircleIcon className="w-9 h-9 text-neon-green" />
                     </div>
-                    <h3 className="text-lg font-bold text-neon-green mb-2">Investment Created!</h3>
+                    <h3 className="text-lg font-bold text-neon-green mb-2">Package Activated</h3>
                     <p className="text-sm text-text-secondary mb-4">
-                        ₹{Number(fdResult.amount).toLocaleString()} locked for {fdResult.durationDays} days
+                        {fdResult.packageName} with {Number(fdResult.amountUsdt).toFixed(2)} USDT
                     </p>
-                    <div className="grid grid-cols-2 gap-3 max-w-xs mx-auto mb-6">
+                    <div className="grid grid-cols-2 gap-3 max-w-sm mx-auto mb-6">
                         <div className="inner-card text-center py-3">
                             <p className="text-[10px] text-text-muted">Monthly Return</p>
                             <p className="text-sm font-bold text-neon-green">{fdResult.monthlyRate}%</p>
                         </div>
                         <div className="inner-card text-center py-3">
-                            <p className="text-[10px] text-text-muted">End Date</p>
+                            <p className="text-[10px] text-text-muted">Unlock Date</p>
                             <p className="text-sm font-bold">{fdResult.endDate}</p>
                         </div>
                     </div>
-                    <button onClick={() => { setSuccess(false); setAmount(''); setFdResult(null); }}
-                        className="btn-outline text-sm px-8">
-                        Make Another Investment
+                    <button
+                        onClick={() => {
+                            setSuccess(false);
+                            setAmountUsdt('');
+                            setFdResult(null);
+                        }}
+                        className="btn-outline text-sm px-8"
+                    >
+                        Create Another Package
                     </button>
                 </motion.div>
             ) : (
                 <>
-                    {/* Balance Card */}
-                    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
-                        className="glass-card flex items-center justify-between">
+                    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="glass-card flex items-center justify-between">
                         <div>
                             <p className="text-text-muted text-xs mb-1">Available Balance</p>
                             <p className="text-xl font-extrabold neon-text">₹{Number(user?.wallet_balance || 0).toFixed(2)}</p>
+                            <p className="text-[11px] text-text-muted mt-1">≈ {Number(user?.wallet_balance_usdt || 0).toFixed(2)} USDT</p>
                         </div>
                         <div className="w-10 h-10 rounded-xl bg-neon-green/10 flex items-center justify-center">
                             <BanknotesIcon className="w-5 h-5 text-neon-green" />
                         </div>
                     </motion.div>
 
-                    {/* Investment Form */}
                     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
                         <form onSubmit={handleInvest} className="glass-card space-y-5">
                             <div className="flex items-center gap-2 mb-1">
                                 <ShieldCheckIcon className="w-5 h-5 text-neon-cyan" />
-                                <p className="text-sm font-semibold text-text-secondary">Investment Amount</p>
+                                <p className="text-sm font-semibold text-text-secondary">USDT Package Amount</p>
                             </div>
 
                             <div>
                                 <div className="relative">
-                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-neon-green font-bold text-lg">₹</span>
+                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-neon-green font-bold text-lg">$</span>
                                     <input
-                                        type="number" value={amount} onChange={(e) => setAmount(e.target.value)}
-                                        placeholder="Enter amount" className="glass-input text-xl font-bold pl-8"
-                                        min="1000" max="50000" step="100"
+                                        type="number"
+                                        value={amountUsdt}
+                                        onChange={(e) => setAmountUsdt(e.target.value)}
+                                        placeholder="Enter USDT amount"
+                                        className="glass-input text-xl font-bold pl-8"
+                                        min={settings.starterMinUsdt}
+                                        step="1"
                                     />
                                 </div>
                                 <div className="flex items-center justify-between mt-2">
                                     <p className="text-[10px] text-text-muted">
-                                        Min: <span className="text-neon-green font-medium">₹1,000</span>
+                                        Starter: <span className="text-neon-green font-medium">{settings.starterMinUsdt} to below {settings.eliteMinUsdt} USDT</span>
                                     </p>
                                     <p className="text-[10px] text-text-muted">
-                                        Max: <span className="text-neon-green font-medium">₹50,000</span>
+                                        Elite: <span className="text-neon-cyan font-medium">{settings.eliteMinUsdt}+ USDT</span>
                                     </p>
                                 </div>
                             </div>
 
-                            {/* Quick Amount Buttons */}
-                            <div className="flex gap-1.5">
-                                {quickAmounts.map((qa) => (
-                                    <button key={qa} type="button" onClick={() => setAmount(String(qa))}
-                                        className={`flex-1 py-2 text-xs font-semibold rounded-xl transition-all border ${amount === String(qa)
+                            <div className="grid grid-cols-3 gap-2">
+                                {[50, 100, 250, 500, 1000, 2500].map((quickAmount) => (
+                                    <button
+                                        key={quickAmount}
+                                        type="button"
+                                        onClick={() => setAmountUsdt(String(quickAmount))}
+                                        className={`py-2 text-xs font-semibold rounded-xl transition-all border ${amountUsdt === String(quickAmount)
                                             ? 'bg-neon-cyan/12 text-neon-cyan border-neon-cyan/20'
-                                            : 'bg-glass text-text-muted border-transparent hover:text-text-secondary hover:border-glass-border'}`}>
-                                        ₹{qa >= 1000 ? `${qa / 1000}K` : qa}
+                                            : 'bg-glass text-text-muted border-transparent hover:text-text-secondary hover:border-glass-border'
+                                            }`}
+                                    >
+                                        ${quickAmount}
                                     </button>
                                 ))}
                             </div>
 
-                            {/* Returns Preview */}
-                            {amt >= 1000 && (
-                                <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }}
-                                    className="rounded-xl border border-neon-cyan/15 bg-neon-cyan/5 p-4 space-y-2">
-                                    <p className="text-xs font-bold text-neon-cyan mb-2">📊 Estimated Returns</p>
-                                    <div className="flex justify-between text-xs">
-                                        <span className="text-text-muted">Monthly Return (5%)</span>
-                                        <span className="text-neon-green font-bold">₹{monthlyReturn.toLocaleString()}</span>
+                            {selectedPackage && (
+                                <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} className="rounded-xl border border-neon-cyan/15 bg-neon-cyan/5 p-4 space-y-2">
+                                    <div className="flex items-center justify-between">
+                                        <p className="text-xs font-bold text-neon-cyan">{selectedPackage.name}</p>
+                                        <span className="text-[11px] font-semibold text-warning">{settings.lockMonths} months lock</span>
                                     </div>
                                     <div className="flex justify-between text-xs">
-                                        <span className="text-text-muted">Total Phase 1 (10%)</span>
-                                        <span className="text-neon-green font-bold">₹{totalReturn.toLocaleString()}</span>
+                                        <span className="text-text-muted">Investment Value</span>
+                                        <span className="text-neon-green font-bold">
+                                            {amount.toFixed(2)} USDT / ₹{amountInr.toFixed(2)}
+                                        </span>
                                     </div>
                                     <div className="flex justify-between text-xs">
-                                        <span className="text-text-muted">After 60 days you get</span>
-                                        <span className="text-neon-cyan font-bold">₹{(amt + totalReturn).toLocaleString()}</span>
+                                        <span className="text-text-muted">Monthly Return ({selectedPackage.rate}%)</span>
+                                        <span className="text-neon-green font-bold">
+                                            {monthlyReturnUsdt.toFixed(2)} USDT / ₹{monthlyReturnInr.toFixed(2)}
+                                        </span>
+                                    </div>
+                                    <div className="flex justify-between text-xs">
+                                        <span className="text-text-muted">Total {settings.lockMonths} Month Return</span>
+                                        <span className="text-neon-cyan font-bold">
+                                            {totalReturnUsdt.toFixed(2)} USDT / ₹{totalReturnInr.toFixed(2)}
+                                        </span>
                                     </div>
                                     <div className="flex justify-between text-xs border-t border-glass-border pt-2 mt-2">
-                                        <span className="text-text-muted">+ Profit Sharing</span>
-                                        <span className="text-neon-purple font-bold">12 months</span>
+                                        <span className="text-text-muted">Principal Returned on Maturity</span>
+                                        <span className="text-warning font-bold">{amount.toFixed(2)} USDT</span>
                                     </div>
                                 </motion.div>
                             )}
 
-                            <button type="submit" disabled={loading || amt < 1000 || amt > 50000}
-                                className="btn-glow w-full text-sm flex items-center justify-center gap-2">
+                            <button
+                                type="submit"
+                                disabled={loading || !selectedPackage}
+                                className="btn-glow w-full text-sm flex items-center justify-center gap-2"
+                            >
                                 {loading ? (
-                                    <><ArrowPathIcon className="w-4 h-4 animate-spin" /> Processing...</>
+                                    <>
+                                        <ArrowPathIcon className="w-4 h-4 animate-spin" /> Processing...
+                                    </>
                                 ) : (
-                                    `Invest ₹${amt >= 1000 ? amt.toLocaleString() : '...'}`
+                                    `Activate ${selectedPackage?.name || 'Package'}`
                                 )}
                             </button>
                         </form>
                     </motion.div>
 
-                    {/* Warning */}
                     <div className="rounded-2xl border border-warning/20 bg-warning/5 p-4">
                         <div className="flex items-start gap-2">
                             <ExclamationTriangleIcon className="w-4 h-4 text-warning shrink-0 mt-0.5" />
                             <div className="text-[11px] text-text-secondary space-y-1">
-                                <p>Your principal will be <span className="text-warning font-bold">locked for 60 days</span>.</p>
-                                <p>5% profit is credited monthly to your wallet.</p>
-                                <p>After completion, you'll be eligible for <span className="text-neon-purple font-bold">1 year profit sharing</span>.</p>
+                                <p>All stacking packages are funded and withdrawn only in <span className="text-warning font-bold">USDT (BEP20)</span>.</p>
+                                <p>FD conversion rate is fixed at <span className="text-neon-cyan font-bold">₹{settings.usdtRate} per USDT</span>.</p>
+                                <p>Direct sponsor gets <span className="text-neon-green font-bold">5% one-time referral income</span>.</p>
+                                <p>Referrer also receives <span className="text-neon-cyan font-bold">1% monthly liquidity bonus</span> from the active referee package.</p>
                             </div>
                         </div>
                     </div>

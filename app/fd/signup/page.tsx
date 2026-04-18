@@ -39,6 +39,7 @@ function FDSignupContent() {
     const router = useRouter();
     const searchParams = useSearchParams();
     const isForgot = searchParams.get('forgot') === 'true';
+    const inviteFromQuery = searchParams.get('invite') || '';
 
     const [step, setStep] = useState<Step>(isForgot ? 'forgot' : 'form');
     const [loading, setLoading] = useState(false);
@@ -49,6 +50,7 @@ function FDSignupContent() {
     const [name, setName] = useState('');
     const [phone, setPhone] = useState('');
     const [email, setEmail] = useState('');
+    const [inviteCode, setInviteCode] = useState(inviteFromQuery);
     const [password, setPassword] = useState('');
     const [confirmPassword, setConfirmPassword] = useState('');
     const [otp, setOtp] = useState('');
@@ -85,6 +87,7 @@ function FDSignupContent() {
         setLoading(true);
         try {
             const res = await axios.post('/api/fd/auth/signup', {
+                inviteCode: inviteCode || undefined,
                 name, phone, email, otp, password, confirmPassword,
             });
             toast.success(res.data.message);
@@ -137,10 +140,10 @@ function FDSignupContent() {
                     {/* Platform Selector */}
                     <div className="grid grid-cols-2 gap-2 p-1.5 rounded-2xl mb-8" style={{ background: 'rgba(255,255,255,0.03)' }}>
                         <Link href="/signup" className="py-3 rounded-xl text-sm font-bold text-text-muted hover:text-text-secondary flex items-center justify-center gap-2 transition-all">
-                            <ChartBarIcon className="w-4 h-4" /> Trading
+                            <ChartBarIcon className="w-4 h-4" /> Smart Trading
                         </Link>
                         <button className="py-3 rounded-xl text-sm font-bold bg-neon-cyan/12 text-neon-cyan flex items-center justify-center gap-2 transition-all">
-                            <BanknotesIcon className="w-4 h-4" /> FD Investment
+                            <BanknotesIcon className="w-4 h-4" /> Stacking Profit
                         </button>
                     </div>
 
@@ -191,8 +194,8 @@ function FDSignupContent() {
                         {step === 'form' && (
                             <motion.div key="form" variants={slideVariants} initial="enter" animate="center" exit="exit" transition={{ duration: 0.35 }}>
                                 <div className="text-center mb-8">
-                                    <h1 className="text-2xl font-extrabold tracking-tight mb-2">Create FD Account</h1>
-                                    <p className="text-text-secondary text-sm">Start investing with GrowViax FD</p>
+                                    <h1 className="text-2xl font-extrabold tracking-tight mb-2">Create Stacking Account</h1>
+                                    <p className="text-text-secondary text-sm">Start with Growviax Stacking Profit</p>
                                 </div>
                                 <form onSubmit={(e) => { e.preventDefault(); sendOTP(); }}>
 
@@ -209,6 +212,16 @@ function FDSignupContent() {
                                     <InputField icon={EnvelopeIcon} label="Email Address" error={errors.email}>
                                         <input type="email" value={email} onChange={(e) => { setEmail(e.target.value); setErrors(p => ({ ...p, email: '' })); }}
                                             placeholder="you@example.com" className="glass-input pl-12" />
+                                    </InputField>
+
+                                    <InputField icon={UserIcon} label="Referral Code (Optional)">
+                                        <input
+                                            type="text"
+                                            value={inviteCode}
+                                            onChange={(e) => setInviteCode(e.target.value.toUpperCase())}
+                                            placeholder="Enter referral code"
+                                            className="glass-input pl-12"
+                                        />
                                     </InputField>
 
                                     <InputField icon={LockClosedIcon} label="Password" error={errors.password}>
@@ -237,7 +250,7 @@ function FDSignupContent() {
                                 </form>
                                 <div className="divider" />
                                 <p className="text-center text-sm text-text-secondary">
-                                    Already have an FD account?{' '}
+                                    Already have a stacking account?{' '}
                                     <Link href="/fd/login" className="text-neon-cyan hover:text-neon-cyan/80 font-semibold transition-colors">Sign In</Link>
                                 </p>
                             </motion.div>

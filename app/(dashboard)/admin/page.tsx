@@ -450,12 +450,12 @@ export default function AdminPage() {
                 <button onClick={() => setPlatform('trading')}
                     className={clsx('py-3 rounded-xl text-sm font-bold transition-all flex items-center justify-center gap-2',
                         platform === 'trading' ? 'bg-neon-green/12 text-neon-green' : 'text-text-muted hover:text-text-secondary')}>
-                    <ChartBarIcon className="w-4 h-4" /> Trading Platform
+                    <ChartBarIcon className="w-4 h-4" /> Smart Trading
                 </button>
                 <button onClick={() => setPlatform('fd')}
                     className={clsx('py-3 rounded-xl text-sm font-bold transition-all flex items-center justify-center gap-2',
                         platform === 'fd' ? 'bg-neon-cyan/12 text-neon-cyan' : 'text-text-muted hover:text-text-secondary')}>
-                    <BanknotesIcon className="w-4 h-4" /> FD Platform
+                    <BanknotesIcon className="w-4 h-4" /> Growviax Stacking Profit
                 </button>
             </div>
 

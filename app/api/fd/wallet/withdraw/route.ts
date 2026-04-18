@@ -1,76 +1,72 @@
 import { NextResponse } from 'next/server';
+import { z } from 'zod';
 import { getFDUserIdFromRequest } from '@/lib/fd-user';
 import { query, queryOne } from '@/lib/db';
-import { z } from 'zod';
+import { getFDSettings, toInr } from '@/lib/fd-config';
+import { syncFDInvestmentsForUser } from '@/lib/fd-earnings';
 
 const withdrawSchema = z.object({
-    amount: z.number().positive('Amount must be positive'),
-    withdrawMethod: z.enum(['usdt', 'upi']),
-    walletAddress: z.string().nullable().optional(),
-    upiId: z.string().nullable().optional(),
+    amountUsdt: z.number().positive('Amount must be positive'),
+    walletAddress: z.string().min(42, 'Invalid BSC wallet address'),
 });
 
 export async function POST(request: Request) {
     try {
         const userId = await getFDUserIdFromRequest(request);
-        if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+        if (!userId) {
+            return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+        }
+
+        await syncFDInvestmentsForUser(userId);
 
         const body = await request.json();
         const parsed = withdrawSchema.safeParse(body);
-
         if (!parsed.success) {
             return NextResponse.json({ error: parsed.error.issues[0].message }, { status: 400 });
         }
 
-        const { amount, withdrawMethod, walletAddress, upiId } = parsed.data;
-
-        if (withdrawMethod === 'usdt') {
-            if (!walletAddress || !/^0x[a-fA-F0-9]{40}$/.test(walletAddress)) {
-                return NextResponse.json({ error: 'Invalid BSC wallet address' }, { status: 400 });
-            }
-        } else {
-            if (!upiId || !upiId.includes('@')) {
-                return NextResponse.json({ error: 'Invalid UPI ID' }, { status: 400 });
-            }
+        const { amountUsdt, walletAddress } = parsed.data;
+        if (!/^0x[a-fA-F0-9]{40}$/.test(walletAddress.trim())) {
+            return NextResponse.json({ error: 'Invalid BSC wallet address' }, { status: 400 });
         }
 
         const MIN_WITHDRAW_USDT = 10;
-        const MIN_WITHDRAW_UPI = 500;
-
-        if (withdrawMethod === 'usdt' && amount < MIN_WITHDRAW_USDT) {
-            return NextResponse.json({ error: `Minimum USDT withdrawal is $${MIN_WITHDRAW_USDT}` }, { status: 400 });
-        }
-        if (withdrawMethod === 'upi' && amount < MIN_WITHDRAW_UPI) {
-            return NextResponse.json({ error: `Minimum UPI withdrawal is ₹${MIN_WITHDRAW_UPI}` }, { status: 400 });
+        if (amountUsdt < MIN_WITHDRAW_USDT) {
+            return NextResponse.json({ error: `Minimum withdrawal is ${MIN_WITHDRAW_USDT} USDT` }, { status: 400 });
         }
 
-        // Get rate
-        const rateSetting = await queryOne<any>("SELECT setting_value FROM fd_settings WHERE setting_key = 'usd_to_inr_rate'");
-        const USD_TO_INR = parseFloat(rateSetting?.setting_value || '98');
+        const settings = await getFDSettings();
+        const inrAmount = toInr(amountUsdt, settings.usdtRate);
 
-        const inrAmount = withdrawMethod === 'usdt' ? amount * USD_TO_INR : amount;
-
-        // Check balance
         const user = await queryOne<any>('SELECT wallet_balance FROM fd_users WHERE id = ?', [userId]);
         if (!user || Number(user.wallet_balance) < inrAmount) {
-            return NextResponse.json({ error: `Insufficient balance. Required: ₹${inrAmount.toFixed(2)}, Available: ₹${Number(user?.wallet_balance || 0).toFixed(2)}` }, { status: 400 });
+            return NextResponse.json({
+                error: `Insufficient balance. Required: ₹${inrAmount.toFixed(2)}, Available: ₹${Number(user?.wallet_balance || 0).toFixed(2)}`,
+            }, { status: 400 });
         }
 
-        const address = withdrawMethod === 'usdt' ? walletAddress : upiId;
-        const network = withdrawMethod === 'usdt' ? 'BEP20' : 'UPI';
-        const notes = withdrawMethod === 'usdt'
-            ? `USDT withdrawal request: $${amount.toFixed(2)} × ${USD_TO_INR} = ₹${inrAmount.toFixed(2)} – pending admin approval`
-            : 'UPI withdrawal request – pending admin approval';
+        const deductResult = await query<any>(
+            'UPDATE fd_users SET wallet_balance = wallet_balance - ? WHERE id = ? AND wallet_balance >= ?',
+            [inrAmount, userId, inrAmount]
+        );
+
+        if (!deductResult || Number(deductResult.affectedRows || 0) === 0) {
+            return NextResponse.json({ error: 'Failed to reserve withdrawal amount. Please try again.' }, { status: 400 });
+        }
 
         await query(
-            'INSERT INTO fd_transactions (user_id, type, amount, wallet_address, status, notes, network) VALUES (?, "withdrawal", ?, ?, "pending", ?, ?)',
-            [userId, inrAmount, address, notes, network]
+            `INSERT INTO fd_transactions (user_id, type, amount, wallet_address, status, notes, network)
+             VALUES (?, 'withdrawal', ?, ?, 'pending', ?, 'BEP20')`,
+            [
+                userId,
+                inrAmount,
+                walletAddress.trim(),
+                `USDT withdrawal request: ${amountUsdt.toFixed(2)} USDT × ${settings.usdtRate} = ₹${inrAmount.toFixed(2)} – pending admin approval (balance reserved)`,
+            ]
         );
 
         return NextResponse.json({
-            message: withdrawMethod === 'usdt'
-                ? `USDT withdrawal request for $${amount.toFixed(2)} (₹${inrAmount.toFixed(2)}) submitted.`
-                : 'UPI withdrawal request submitted. Will be processed within 24 hours.'
+            message: `Withdrawal request for ${amountUsdt.toFixed(2)} USDT submitted. It will be processed after admin approval.`,
         });
     } catch (error: any) {
         console.error('FD Withdraw error:', error);

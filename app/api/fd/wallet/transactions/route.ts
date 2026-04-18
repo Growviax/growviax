@@ -1,11 +1,14 @@
 import { NextResponse } from 'next/server';
 import { getFDUserIdFromRequest } from '@/lib/fd-user';
 import { query } from '@/lib/db';
+import { syncFDInvestmentsForUser } from '@/lib/fd-earnings';
 
 export async function GET(request: Request) {
     try {
         const userId = await getFDUserIdFromRequest(request);
         if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+        await syncFDInvestmentsForUser(userId);
 
         const transactions = await query<any[]>(
             'SELECT * FROM fd_transactions WHERE user_id = ? ORDER BY created_at DESC LIMIT 100',

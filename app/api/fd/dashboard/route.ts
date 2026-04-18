@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { getCurrentFDUser } from '@/lib/fd-user';
-import { query } from '@/lib/db';
+import { query, queryOne } from '@/lib/db';
+import { getFDPackageName, getFDSettings, toUsdt } from '@/lib/fd-config';
+import { syncFDInvestmentsForUser } from '@/lib/fd-earnings';
 
 export async function GET() {
     try {
@@ -9,60 +11,82 @@ export async function GET() {
             return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
         }
 
-        // Get all FD deposits for user
-        const fdDeposits = await query<any[]>(
-            `SELECT * FROM fd_deposits WHERE user_id = ? ORDER BY created_at DESC`,
-            [user.id]
-        );
+        await syncFDInvestmentsForUser(user.id);
 
-        // Get Phase 1 profit logs
-        const profitLogs = await query<any[]>(
-            `SELECT pl.*, fd.amount as fd_amount FROM fd_profit_logs pl 
-             JOIN fd_deposits fd ON pl.fd_deposit_id = fd.id 
-             WHERE pl.user_id = ? ORDER BY pl.credited_at DESC`,
-            [user.id]
-        );
+        const settings = await getFDSettings();
 
-        // Get profit sharing earnings
-        const profitShares = await query<any[]>(
-            `SELECT ups.*, fpd.distribution_month, fpd.company_profit, fpd.distribution_percentage 
-             FROM fd_user_profit_shares ups 
-             JOIN fd_profit_distributions fpd ON ups.distribution_id = fpd.id 
-             WHERE ups.user_id = ? ORDER BY ups.created_at DESC`,
-            [user.id]
-        );
+        const [freshUser, fdDeposits, profitLogs, referralCount] = await Promise.all([
+            queryOne<any>('SELECT wallet_balance, referral_code FROM fd_users WHERE id = ?', [user.id]),
+            query<any[]>(
+                `SELECT * FROM fd_deposits
+                 WHERE user_id = ?
+                 ORDER BY created_at DESC`,
+                [user.id]
+            ),
+            query<any[]>(
+                `SELECT pl.*, fd.amount as fd_amount
+                 FROM fd_profit_logs pl
+                 JOIN fd_deposits fd ON pl.fd_deposit_id = fd.id
+                 WHERE pl.user_id = ?
+                 ORDER BY pl.credited_at DESC`,
+                [user.id]
+            ),
+            queryOne<any>(
+                'SELECT COUNT(*) as total FROM fd_users WHERE referred_by = ?',
+                [user.referral_code]
+            ),
+        ]);
 
-        // Calculate summaries
-        const totalInvested = fdDeposits.reduce((sum: number, fd: any) => sum + Number(fd.amount), 0);
-        const totalPhase1Earned = profitLogs.reduce((sum: number, pl: any) => sum + Number(pl.amount), 0);
-        const totalProfitShareEarned = profitShares.reduce((sum: number, ps: any) => sum + Number(ps.amount), 0);
-        const activeFDs = fdDeposits.filter((fd: any) => fd.status === 'active');
-        const completedFDs = fdDeposits.filter((fd: any) => fd.status === 'completed' || fd.phase === 'phase1_completed' || fd.phase === 'phase2_sharing');
+        let referralEarnings: any[] = [];
+        try {
+            referralEarnings = await query<any[]>(
+                `SELECT fre.*, fu.name as from_user_name
+                 FROM fd_referral_earnings fre
+                 LEFT JOIN fd_users fu ON fre.from_user_id = fu.id
+                 WHERE fre.user_id = ?
+                 ORDER BY fre.created_at DESC`,
+                [user.id]
+            );
+        } catch (referralError) {
+            console.error('FD dashboard referral earnings error:', referralError);
+        }
 
-        // Find latest profit share
-        const lastMonthProfit = profitShares.length > 0 ? Number(profitShares[0].amount) : 0;
+        const enrichedDeposits = (fdDeposits || []).map((fd) => ({
+            ...fd,
+            amount_usdt: toUsdt(Number(fd.amount || 0), settings.usdtRate),
+            package_name: getFDPackageName(Number(fd.amount || 0), Number(fd.monthly_rate || 0), settings),
+        }));
 
-        // Find eligible sharing deposits
-        const eligibleSharing = fdDeposits.filter((fd: any) =>
-            (fd.phase === 'phase2_sharing' || fd.phase === 'phase1_completed') &&
-            fd.profit_sharing_expiry && new Date(fd.profit_sharing_expiry) > new Date()
-        );
+        const totalInvested = enrichedDeposits.reduce((sum, fd) => sum + Number(fd.amount || 0), 0);
+        const totalMonthlyEarned = (profitLogs || []).reduce((sum, log) => sum + Number(log.amount || 0), 0);
+        const totalReferralBonus = (referralEarnings || [])
+            .filter((earning) => earning.type === 'referral_bonus')
+            .reduce((sum, earning) => sum + Number(earning.amount || 0), 0);
+        const totalLiquidityBonus = (referralEarnings || [])
+            .filter((earning) => earning.type === 'liquidity_bonus')
+            .reduce((sum, earning) => sum + Number(earning.amount || 0), 0);
+
+        const activeFDs = enrichedDeposits.filter((fd) => fd.status === 'active');
+        const completedFDs = enrichedDeposits.filter((fd) => fd.status === 'completed');
 
         return NextResponse.json({
-            wallet_balance: user.wallet_balance,
+            wallet_balance: Number(freshUser?.wallet_balance || 0),
+            wallet_balance_usdt: toUsdt(Number(freshUser?.wallet_balance || 0), settings.usdtRate),
             summary: {
                 totalInvested,
-                totalPhase1Earned,
-                totalProfitShareEarned,
-                totalEarned: totalPhase1Earned + totalProfitShareEarned,
+                totalMonthlyEarned,
+                totalReferralBonus,
+                totalLiquidityBonus,
+                totalEarned: totalMonthlyEarned + totalReferralBonus + totalLiquidityBonus,
                 activeFDCount: activeFDs.length,
                 completedFDCount: completedFDs.length,
-                lastMonthProfit,
-                eligibleSharingCount: eligibleSharing.length,
+                directReferralCount: Number(referralCount?.total || 0),
+                usdtRate: settings.usdtRate,
+                lockMonths: settings.lockMonths,
             },
-            fdDeposits,
+            fdDeposits: enrichedDeposits,
             profitLogs,
-            profitShares,
+            referralEarnings,
         });
     } catch (error: any) {
         console.error('FD Dashboard API error:', error);

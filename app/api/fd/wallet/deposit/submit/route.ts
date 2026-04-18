@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { getFDUserIdFromRequest } from '@/lib/fd-user';
 import { query, queryOne } from '@/lib/db';
 import { z } from 'zod';
+import { getFDSettings, toInr } from '@/lib/fd-config';
 
 const submitSchema = z.object({
     txHash: z.string().min(10, 'Invalid transaction hash'),
@@ -29,17 +30,15 @@ export async function POST(request: Request) {
             return NextResponse.json({ error: 'This transaction hash has already been submitted' }, { status: 400 });
         }
 
-        // Get USD to INR rate
-        const rateSetting = await queryOne<any>("SELECT setting_value FROM fd_settings WHERE setting_key = 'usd_to_inr_rate'");
-        const usdToInr = parseFloat(rateSetting?.setting_value || '98');
-        const inrAmount = amount * usdToInr;
+        const settings = await getFDSettings();
+        const inrAmount = toInr(amount, settings.usdtRate);
 
         await query(
             `INSERT INTO fd_deposit_requests (user_id, deposit_type, amount, wallet_address, tx_hash, status) VALUES (?, 'usdt', ?, ?, ?, 'pending')`,
             [userId, inrAmount, walletAddress, txHash]
         );
 
-        return NextResponse.json({ message: `USDT deposit of $${amount.toFixed(2)} (≈₹${inrAmount.toFixed(2)}) submitted for review` });
+        return NextResponse.json({ message: `USDT deposit of ${amount.toFixed(2)} USDT (≈₹${inrAmount.toFixed(2)}) submitted for review` });
     } catch (error: any) {
         console.error('FD deposit submit error:', error);
         return NextResponse.json({ error: 'Internal server error' }, { status: 500 });

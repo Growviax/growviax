@@ -1,17 +1,23 @@
 import { NextResponse } from 'next/server';
+import dayjs from 'dayjs';
+import { z } from 'zod';
 import { getFDUserIdFromRequest } from '@/lib/fd-user';
 import { query, queryOne } from '@/lib/db';
-import { z } from 'zod';
-import dayjs from 'dayjs';
+import { getFDPackageDetails, getFDSettings } from '@/lib/fd-config';
+import { processFDReferralBonusForDeposit, syncFDInvestmentsForUser } from '@/lib/fd-earnings';
 
 const investSchema = z.object({
-    amount: z.number().min(1000, 'Minimum investment is ₹1,000').max(50000, 'Maximum investment is ₹50,000'),
+    amountUsdt: z.number().positive('Investment amount must be positive'),
 });
 
 export async function POST(request: Request) {
     try {
         const userId = await getFDUserIdFromRequest(request);
-        if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+        if (!userId) {
+            return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+        }
+
+        await syncFDInvestmentsForUser(userId);
 
         const body = await request.json();
         const parsed = investSchema.safeParse(body);
@@ -20,48 +26,87 @@ export async function POST(request: Request) {
             return NextResponse.json({ error: parsed.error.issues[0].message }, { status: 400 });
         }
 
-        const { amount } = parsed.data;
+        const settings = await getFDSettings();
+        const packageDetails = getFDPackageDetails(parsed.data.amountUsdt, settings);
 
-        // Check wallet balance
-        const user = await queryOne<any>('SELECT wallet_balance FROM fd_users WHERE id = ?', [userId]);
-        if (!user || Number(user.wallet_balance) < amount) {
+        if (!packageDetails) {
             return NextResponse.json({
-                error: `Insufficient balance. Available: ₹${Number(user?.wallet_balance || 0).toFixed(2)}, Required: ₹${amount.toFixed(2)}`
+                error: `Choose a valid package amount: ${settings.starterMinUsdt}-${settings.starterMaxUsdt - 0.01} USDT for Starter or ${settings.eliteMinUsdt}+ USDT for Elite.`,
             }, { status: 400 });
         }
 
-        // Get FD settings
-        const rateSetting = await queryOne<any>("SELECT setting_value FROM fd_settings WHERE setting_key = 'fd_monthly_rate'");
-        const durationSetting = await queryOne<any>("SELECT setting_value FROM fd_settings WHERE setting_key = 'fd_duration_days'");
-        const sharingDurationSetting = await queryOne<any>("SELECT setting_value FROM fd_settings WHERE setting_key = 'profit_sharing_duration_months'");
+        const user = await queryOne<any>('SELECT wallet_balance FROM fd_users WHERE id = ?', [userId]);
+        if (!user || Number(user.wallet_balance) < packageDetails.amountInr) {
+            return NextResponse.json({
+                error: `Insufficient balance. Available: ₹${Number(user?.wallet_balance || 0).toFixed(2)}, Required: ₹${packageDetails.amountInr.toFixed(2)}`,
+            }, { status: 400 });
+        }
 
-        const monthlyRate = parseFloat(rateSetting?.setting_value || '5');
-        const durationDays = parseInt(durationSetting?.setting_value || '60');
-        const sharingDurationMonths = parseInt(sharingDurationSetting?.setting_value || '12');
+        const startDate = dayjs();
+        const endDate = startDate.add(settings.lockMonths, 'month');
+        const durationDays = endDate.diff(startDate, 'day');
 
-        const startDate = dayjs().format('YYYY-MM-DD');
-        const endDate = dayjs().add(durationDays, 'day').format('YYYY-MM-DD');
-        const profitSharingExpiry = dayjs().add(durationDays, 'day').add(sharingDurationMonths, 'month').format('YYYY-MM-DD');
-
-        // Deduct from wallet
-        await query('UPDATE fd_users SET wallet_balance = wallet_balance - ? WHERE id = ?', [amount, userId]);
-
-        // Create FD deposit
-        await query(
-            `INSERT INTO fd_deposits (user_id, amount, monthly_rate, duration_days, start_date, end_date, phase, status, profit_sharing_expiry) 
-             VALUES (?, ?, ?, ?, ?, ?, 'phase1_active', 'active', ?)`,
-            [userId, amount, monthlyRate, durationDays, startDate, endDate, profitSharingExpiry]
+        const deductResult = await query<any>(
+            'UPDATE fd_users SET wallet_balance = wallet_balance - ? WHERE id = ? AND wallet_balance >= ?',
+            [packageDetails.amountInr, userId, packageDetails.amountInr]
         );
 
-        // Record transaction
-        await query(
-            `INSERT INTO fd_transactions (user_id, type, amount, status, notes) VALUES (?, 'fd_invest', ?, 'completed', ?)`,
-            [userId, amount, `FD Investment of ₹${amount.toFixed(2)} for ${durationDays} days at ${monthlyRate}% monthly`]
+        if (!deductResult || Number(deductResult.affectedRows || 0) === 0) {
+            return NextResponse.json({ error: 'Insufficient balance for this package.' }, { status: 400 });
+        }
+
+        const result = await query<any>(
+            `INSERT INTO fd_deposits (
+                user_id,
+                amount,
+                monthly_rate,
+                duration_days,
+                start_date,
+                end_date,
+                phase,
+                status,
+                profit_sharing_eligible,
+                profit_sharing_expiry
+            ) VALUES (?, ?, ?, ?, ?, ?, 'phase1_active', 'active', 0, NULL)`,
+            [
+                userId,
+                packageDetails.amountInr,
+                packageDetails.monthlyRate,
+                durationDays,
+                startDate.format('YYYY-MM-DD'),
+                endDate.format('YYYY-MM-DD'),
+            ]
         );
+
+        await query(
+            `INSERT INTO fd_transactions (user_id, type, amount, status, notes, network)
+             VALUES (?, 'fd_invest', ?, 'completed', ?, 'BEP20')`,
+            [
+                userId,
+                packageDetails.amountInr,
+                `${packageDetails.name} activated: ${packageDetails.amountUsdt.toFixed(2)} USDT at ${packageDetails.monthlyRate}% monthly for ${settings.lockMonths} months`,
+            ]
+        );
+
+        try {
+            await processFDReferralBonusForDeposit(result.insertId);
+        } catch (referralError) {
+            console.error('FD referral bonus processing failed:', referralError);
+        }
 
         return NextResponse.json({
-            message: `FD Investment of ₹${amount.toLocaleString()} created successfully! Your funds are locked for ${durationDays} days.`,
-            fd: { amount, startDate, endDate, monthlyRate, durationDays },
+            message: `${packageDetails.name} created successfully. Your funds are locked for ${settings.lockMonths} months.`,
+            fd: {
+                id: result.insertId,
+                packageName: packageDetails.name,
+                amountUsdt: packageDetails.amountUsdt,
+                amountInr: packageDetails.amountInr,
+                startDate: startDate.format('YYYY-MM-DD'),
+                endDate: endDate.format('YYYY-MM-DD'),
+                monthlyRate: packageDetails.monthlyRate,
+                lockMonths: settings.lockMonths,
+                usdtRate: settings.usdtRate,
+            },
         });
     } catch (error: any) {
         console.error('FD Invest error:', error);

@@ -46,7 +46,7 @@ export default function FDProfilePage() {
                     <UserCircleIcon className="w-12 h-12 text-neon-cyan" />
                 </div>
                 <h2 className="text-xl font-extrabold">{user?.name || 'User'}</h2>
-                <span className="badge-info mt-2">FD Investor</span>
+                <span className="badge-info mt-2">Stacking Member</span>
             </motion.div>
 
             {/* Details */}
@@ -78,6 +78,7 @@ export default function FDProfilePage() {
                         <div>
                             <p className="text-[10px] text-text-muted uppercase">Referral Code</p>
                             <p className="text-sm font-bold text-neon-green font-mono">{user?.referral_code}</p>
+                            <p className="text-[10px] text-text-muted mt-1">Direct referrals: {user?.direct_referrals || 0}</p>
                         </div>
                     </div>
                     <button onClick={() => { navigator.clipboard.writeText(user?.referral_code || ''); toast.success('Referral code copied!'); }}
@@ -87,8 +88,9 @@ export default function FDProfilePage() {
 
             {/* Wallet Info */}
             <div className="glass-card">
-                <p className="text-xs text-text-muted mb-2">FD Wallet Balance</p>
+                <p className="text-xs text-text-muted mb-2">Stacking Wallet Balance</p>
                 <p className="text-2xl font-extrabold neon-text">₹{Number(user?.wallet_balance || 0).toFixed(2)}</p>
+                <p className="text-[11px] text-text-muted mt-1">≈ {Number(user?.wallet_balance_usdt || 0).toFixed(2)} USDT</p>
             </div>
 
             {/* Logout */}

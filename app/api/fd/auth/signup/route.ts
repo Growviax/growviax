@@ -1,9 +1,10 @@
 import { NextResponse } from 'next/server';
-import { query, queryOne } from '@/lib/db';
-import { hashPassword, signFDToken } from '@/lib/auth';
 import { z } from 'zod';
+import { query, queryOne } from '@/lib/db';
+import { generateReferralCode, hashPassword, signFDToken } from '@/lib/auth';
 
 const signupSchema = z.object({
+    inviteCode: z.string().optional(),
     name: z.string().min(2, 'Name must be at least 2 characters'),
     phone: z.string().min(10, 'Invalid phone number'),
     email: z.string().email('Invalid email'),
@@ -15,6 +16,21 @@ const signupSchema = z.object({
     path: ['confirmPassword'],
 });
 
+async function getUniqueReferralCode(): Promise<string> {
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+        const referralCode = generateReferralCode();
+        const existing = await queryOne<any>(
+            'SELECT id FROM fd_users WHERE referral_code = ?',
+            [referralCode]
+        );
+        if (!existing) {
+            return referralCode;
+        }
+    }
+
+    throw new Error('Unable to generate unique FD referral code');
+}
+
 export async function POST(request: Request) {
     try {
         const body = await request.json();
@@ -24,9 +40,22 @@ export async function POST(request: Request) {
             return NextResponse.json({ error: parsed.error.issues[0].message }, { status: 400 });
         }
 
-        const { name, phone, email, otp, password } = parsed.data;
+        const { inviteCode, name, phone, email, otp, password } = parsed.data;
 
-        // Check if FD user already exists
+        let referredBy: string | null = null;
+        if (inviteCode && inviteCode.trim()) {
+            const referrer = await queryOne<any>(
+                'SELECT id, referral_code FROM fd_users WHERE referral_code = ?',
+                [inviteCode.trim()]
+            );
+
+            if (!referrer) {
+                return NextResponse.json({ error: 'Invalid invite code' }, { status: 400 });
+            }
+
+            referredBy = inviteCode.trim();
+        }
+
         const existingUser = await queryOne<any>(
             'SELECT id FROM fd_users WHERE email = ?',
             [email]
@@ -36,9 +65,12 @@ export async function POST(request: Request) {
             return NextResponse.json({ error: 'Email already registered on FD platform' }, { status: 400 });
         }
 
-        // Verify OTP
         const otpRecord = await queryOne<any>(
-            'SELECT * FROM otp_codes WHERE email = ? AND code = ? AND expires_at > NOW() AND is_used = 0 ORDER BY created_at DESC LIMIT 1',
+            `SELECT *
+             FROM otp_codes
+             WHERE email = ? AND code = ? AND expires_at > NOW() AND is_used = 0
+             ORDER BY created_at DESC
+             LIMIT 1`,
             [email, otp]
         );
 
@@ -46,25 +78,23 @@ export async function POST(request: Request) {
             return NextResponse.json({ error: 'Invalid or expired OTP' }, { status: 400 });
         }
 
-        // Mark OTP as used
         await query('UPDATE otp_codes SET is_used = 1 WHERE id = ?', [otpRecord.id]);
 
-        // Create FD user (no referral code or referred_by)
         const passwordHash = await hashPassword(password);
+        const referralCode = await getUniqueReferralCode();
 
         const result = await query<any>(
-            'INSERT INTO fd_users (name, email, phone, password_hash, is_verified) VALUES (?, ?, ?, ?, 1)',
-            [name, email, phone, passwordHash]
+            `INSERT INTO fd_users (name, email, phone, password_hash, referral_code, referred_by, is_verified)
+             VALUES (?, ?, ?, ?, ?, ?, 1)`,
+            [name, email, phone, passwordHash, referralCode, referredBy]
         );
 
         const fdUserId = result.insertId;
-
-        // Generate FD JWT
         const token = signFDToken({ fdUserId, email, role: 'user' });
 
         const response = NextResponse.json({
-            message: 'FD Account created successfully',
-            user: { id: fdUserId, name, email },
+            message: 'FD account created successfully',
+            user: { id: fdUserId, name, email, referralCode },
         });
 
         response.cookies.set('fd_token', token, {

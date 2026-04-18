@@ -36,15 +36,22 @@ export async function PATCH(request: Request) {
         if (!tx) return NextResponse.json({ error: 'Transaction not found' }, { status: 404 });
         if (tx.status !== 'pending') return NextResponse.json({ error: 'Already processed' }, { status: 400 });
 
+        const isReservedFlow = String(tx.notes || '').includes('balance reserved');
+
         if (action === 'approve') {
             await query('UPDATE fd_transactions SET status = "completed" WHERE id = ?', [transactionId]);
-            await query('UPDATE fd_users SET wallet_balance = wallet_balance - ? WHERE id = ?', [Number(tx.amount), tx.user_id]);
+            if (!isReservedFlow) {
+                await query('UPDATE fd_users SET wallet_balance = wallet_balance - ? WHERE id = ?', [Number(tx.amount), tx.user_id]);
+            }
             return NextResponse.json({ message: 'Withdrawal approved' });
         }
 
         if (action === 'reject') {
             await query('UPDATE fd_transactions SET status = "rejected" WHERE id = ?', [transactionId]);
-            return NextResponse.json({ message: 'Withdrawal rejected, balance not deducted' });
+            if (isReservedFlow) {
+                await query('UPDATE fd_users SET wallet_balance = wallet_balance + ? WHERE id = ?', [Number(tx.amount), tx.user_id]);
+            }
+            return NextResponse.json({ message: isReservedFlow ? 'Withdrawal rejected and balance refunded' : 'Withdrawal rejected' });
         }
 
         return NextResponse.json({ error: 'Invalid action' }, { status: 400 });

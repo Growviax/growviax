@@ -47,10 +47,10 @@ export default function LoginPage() {
                     {/* Platform Selector */}
                     <div className="grid grid-cols-2 gap-2 p-1.5 rounded-2xl mb-8" style={{ background: 'rgba(255,255,255,0.03)' }}>
                         <button className="py-3 rounded-xl text-sm font-bold bg-neon-green/12 text-neon-green flex items-center justify-center gap-2 transition-all">
-                            <ChartBarIcon className="w-4 h-4" /> Trading
+                            <ChartBarIcon className="w-4 h-4" /> Smart Trading
                         </button>
                         <Link href="/fd/login" className="py-3 rounded-xl text-sm font-bold text-text-muted hover:text-text-secondary flex items-center justify-center gap-2 transition-all">
-                            <BanknotesIcon className="w-4 h-4" /> FD Investment
+                            <BanknotesIcon className="w-4 h-4" /> Stacking Profit
                         </Link>
                     </div>
 

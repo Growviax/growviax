@@ -47,16 +47,16 @@ export default function FDLoginPage() {
                     {/* Platform Selector */}
                     <div className="grid grid-cols-2 gap-2 p-1.5 rounded-2xl mb-8" style={{ background: 'rgba(255,255,255,0.03)' }}>
                         <Link href="/login" className="py-3 rounded-xl text-sm font-bold text-text-muted hover:text-text-secondary flex items-center justify-center gap-2 transition-all">
-                            <ChartBarIcon className="w-4 h-4" /> Trading
+                            <ChartBarIcon className="w-4 h-4" /> Smart Trading
                         </Link>
                         <button className="py-3 rounded-xl text-sm font-bold bg-neon-cyan/12 text-neon-cyan flex items-center justify-center gap-2 transition-all">
-                            <BanknotesIcon className="w-4 h-4" /> FD Investment
+                            <BanknotesIcon className="w-4 h-4" /> Stacking Profit
                         </button>
                     </div>
 
                     <div className="text-center mb-8">
                         <h1 className="text-3xl font-extrabold tracking-tight mb-2">Welcome Back</h1>
-                        <p className="text-text-secondary text-sm">Sign in to your FD investment account</p>
+                        <p className="text-text-secondary text-sm">Sign in to your Growviax Stacking Profit account</p>
                     </div>
 
                     <form onSubmit={handleLogin}>
@@ -106,7 +106,7 @@ export default function FDLoginPage() {
                     <div className="divider" />
 
                     <p className="text-center text-sm text-text-secondary">
-                        Don&apos;t have an FD account?{' '}
+                        Don&apos;t have a stacking account?{' '}
                         <Link href="/fd/signup" className="text-neon-cyan hover:text-neon-cyan/80 font-semibold transition-colors">
                             Create Account
                         </Link>
