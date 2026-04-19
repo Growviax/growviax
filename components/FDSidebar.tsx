@@ -5,11 +5,12 @@ import { usePathname, useRouter } from 'next/navigation';
 import Image from 'next/image';
 import axios from 'axios';
 import toast from 'react-hot-toast';
-import { HomeIcon, ChartBarSquareIcon, BanknotesIcon, WalletIcon, UserCircleIcon, LifebuoyIcon, ArrowRightOnRectangleIcon } from '@heroicons/react/24/outline';
+import { HomeIcon, ChartBarSquareIcon, GiftIcon, BanknotesIcon, WalletIcon, UserCircleIcon, LifebuoyIcon, ArrowRightOnRectangleIcon } from '@heroicons/react/24/outline';
 
 const navItems = [
     { label: 'Home', href: '/fd/home', Icon: HomeIcon },
     { label: 'Dashboard', href: '/fd/dashboard', Icon: ChartBarSquareIcon },
+    { label: 'Promotion', href: '/fd/promotion', Icon: GiftIcon },
     { label: 'Invest', href: '/fd/invest', Icon: BanknotesIcon },
     { label: 'Assets', href: '/fd/assets', Icon: WalletIcon },
     { label: 'Support', href: '/fd/support', Icon: LifebuoyIcon },

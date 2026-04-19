@@ -1,0 +1,316 @@
+'use client';
+
+import { useEffect, useState, useCallback } from 'react';
+import axios from 'axios';
+import toast from 'react-hot-toast';
+import { motion } from 'framer-motion';
+import {
+    UserGroupIcon, GiftIcon,
+    ClipboardDocumentIcon, ShareIcon, SparklesIcon,
+    ArrowTrendingUpIcon, BanknotesIcon,
+    CheckBadgeIcon, XCircleIcon,
+} from '@heroicons/react/24/outline';
+import clsx from 'clsx';
+import dayjs from 'dayjs';
+
+export default function FDPromotionPage() {
+    const [data, setData] = useState<any>(null);
+    const [loading, setLoading] = useState(true);
+    const [incomeFilter, setIncomeFilter] = useState('all');
+
+    const fetchData = useCallback(async () => {
+        try {
+            const res = await axios.get('/api/fd/referral');
+            setData(res.data);
+        } catch { } finally { setLoading(false); }
+    }, []);
+
+    useEffect(() => { fetchData(); }, [fetchData]);
+
+    const copy = (text: string, label: string) => {
+        navigator.clipboard.writeText(text);
+        toast.success(`${label} copied!`);
+    };
+
+    const referralLink = `${typeof window !== 'undefined' ? window.location.origin : ''}/fd/signup?invite=${data?.referral_code || ''}`;
+
+    const handleShare = async () => {
+        const shareData = {
+            title: 'Join Growviax Stacking Profit',
+            text: `Join Growviax Stacking Profit and earn monthly returns! Use my referral code: ${data?.referral_code}`,
+            url: referralLink,
+        };
+        try {
+            if (navigator.share) {
+                await navigator.share(shareData);
+            } else {
+                await navigator.clipboard.writeText(`${shareData.text}\n${shareData.url}`);
+                toast.success('Referral link copied to clipboard!');
+            }
+        } catch (err: any) {
+            if (err.name !== 'AbortError') {
+                await navigator.clipboard.writeText(`${shareData.text}\n${shareData.url}`);
+                toast.success('Referral link copied to clipboard!');
+            }
+        }
+    };
+
+    const container = { hidden: { opacity: 0 }, show: { opacity: 1, transition: { staggerChildren: 0.06 } } };
+    const item = { hidden: { opacity: 0, y: 12 }, show: { opacity: 1, y: 0, transition: { duration: 0.4 } } };
+
+    const stats = data?.stats || {};
+    const earnings = data?.earnings || [];
+    const teamMembers = data?.teamMembers || [];
+
+    const filteredEarnings = incomeFilter === 'all'
+        ? earnings
+        : earnings.filter((e: any) => e.type === incomeFilter);
+
+    if (loading) return (
+        <div className="space-y-4">
+            <div className="skeleton h-12 w-40" />
+            <div className="skeleton h-32 w-full" />
+            <div className="grid grid-cols-2 gap-3"><div className="skeleton h-24" /><div className="skeleton h-24" /></div>
+            <div className="skeleton h-44 w-full" />
+        </div>
+    );
+
+    return (
+        <motion.div variants={container} initial="hidden" animate="show" className="space-y-5 pb-6">
+            {/* Header */}
+            <motion.div variants={item} className="flex items-center justify-between">
+                <div>
+                    <h1 className="text-2xl font-extrabold tracking-tight">Promotion</h1>
+                    <p className="text-xs text-text-muted mt-1">Refer & Earn stacking rewards</p>
+                </div>
+                <div className="w-10 h-10 rounded-xl bg-neon-purple/12 flex items-center justify-center">
+                    <GiftIcon className="w-5 h-5 text-neon-purple" />
+                </div>
+            </motion.div>
+
+            {/* Total Income Card */}
+            <motion.div variants={item}
+                className="relative overflow-hidden rounded-3xl border border-glass-border"
+                style={{
+                    background: 'linear-gradient(135deg, rgba(168,85,247,0.08) 0%, rgba(0,255,136,0.04) 50%, rgba(0,212,255,0.04) 100%)',
+                }}
+            >
+                <div className="absolute -top-16 -right-16 w-36 h-36 rounded-full bg-neon-purple/8 blur-3xl" />
+                <div className="absolute -bottom-10 -left-10 w-28 h-28 rounded-full bg-neon-green/6 blur-3xl" />
+                <div className="relative p-6">
+                    <p className="text-text-secondary text-sm font-medium mb-2">Total Referral Income</p>
+                    <p className="stat-value neon-text text-3xl mb-1">₹{(stats.totalIncome || 0).toFixed(2)}</p>
+                    <div className="flex items-center gap-2 mt-2">
+                        <span className="badge-success">Active Partner</span>
+                    </div>
+                </div>
+            </motion.div>
+
+            {/* Income Stats Grid */}
+            <motion.div variants={item} className="grid grid-cols-3 gap-3">
+                {[
+                    { label: 'Referral Bonus', value: stats.referralBonus || 0, icon: SparklesIcon, color: 'warning' },
+                    { label: 'Liquidity Bonus', value: stats.liquidityBonus || 0, icon: ArrowTrendingUpIcon, color: 'neon-cyan' },
+                    { label: 'Direct Team', value: stats.totalTeam || 0, icon: UserGroupIcon, color: 'neon-purple', isMember: true },
+                ].map((stat) => (
+                    <div key={stat.label} className="glass-card p-4 text-center">
+                        <div className={`w-9 h-9 mx-auto mb-2.5 rounded-xl bg-${stat.color}/10 flex items-center justify-center`}>
+                            <stat.icon className={`w-4.5 h-4.5 text-${stat.color}`} />
+                        </div>
+                        <p className={`text-lg font-extrabold text-${stat.color}`}>
+                            {stat.isMember ? stat.value : `₹${stat.value.toFixed(2)}`}
+                        </p>
+                        <p className="text-[10px] text-text-muted mt-0.5 uppercase tracking-wider">{stat.label}</p>
+                    </div>
+                ))}
+            </motion.div>
+
+            {/* Referral Link Card */}
+            <motion.div variants={item} className="glass-card">
+                <div className="flex items-center justify-between mb-4">
+                    <h2 className="font-bold text-sm flex items-center gap-2">
+                        <GiftIcon className="w-4 h-4 text-warning" /> Refer & Earn
+                    </h2>
+                    <span className="text-[10px] text-text-muted uppercase tracking-wider">5% Referral Income</span>
+                </div>
+                <div className="inner-card flex items-center justify-between mb-3">
+                    <div>
+                        <p className="text-[10px] text-text-muted uppercase tracking-wider">Your Referral Code</p>
+                        <p className="text-lg font-mono font-extrabold mt-0.5 text-neon-cyan">{data?.referral_code}</p>
+                    </div>
+                    <button onClick={() => copy(data?.referral_code || '', 'Code')} className="btn-ghost px-3 py-2">
+                        <ClipboardDocumentIcon className="w-5 h-5" />
+                    </button>
+                </div>
+                <div className="flex gap-2">
+                    <button onClick={() => copy(referralLink, 'Referral link')} className="btn-glow flex-1 text-sm py-3">
+                        Copy Referral Link
+                    </button>
+                    <button onClick={handleShare} className="flex items-center justify-center gap-2 px-5 py-3 rounded-2xl font-bold text-sm bg-neon-purple/15 text-neon-purple hover:bg-neon-purple/25 transition-all">
+                        <ShareIcon className="w-4 h-4" /> Share
+                    </button>
+                </div>
+            </motion.div>
+
+            {/* Income Details */}
+            <motion.div variants={item} className="glass-card">
+                <h2 className="font-bold text-sm flex items-center gap-2 mb-4">
+                    <BanknotesIcon className="w-4 h-4 text-neon-cyan" /> Income Details
+                </h2>
+                <div className="space-y-2.5">
+                    {[
+                        { label: 'Referral Bonus', value: stats.referralBonus || 0, desc: '5% one-time income from referee\'s first stacking package', color: 'warning' },
+                        { label: 'Liquidity Bonus', value: stats.liquidityBonus || 0, desc: '1% monthly from referee\'s active stacking package', color: 'neon-cyan' },
+                    ].map((inc) => (
+                        <div key={inc.label} className="inner-card flex items-center justify-between">
+                            <div>
+                                <p className="text-sm font-semibold">{inc.label}</p>
+                                <p className="text-[11px] text-text-muted mt-0.5">{inc.desc}</p>
+                            </div>
+                            <p className={`text-sm font-bold text-${inc.color}`}>₹{inc.value.toFixed(2)}</p>
+                        </div>
+                    ))}
+                    <div className="inner-card flex items-center justify-between border-neon-green/15 bg-neon-green/5">
+                        <div>
+                            <p className="text-sm font-bold text-neon-green">Total Income</p>
+                        </div>
+                        <p className="text-base font-extrabold text-neon-green">₹{(stats.totalIncome || 0).toFixed(2)}</p>
+                    </div>
+                </div>
+            </motion.div>
+
+            {/* Income History */}
+            <motion.div variants={item} className="glass-card">
+                <div className="flex items-center justify-between mb-4">
+                    <h2 className="font-bold text-sm flex items-center gap-2">
+                        <ArrowTrendingUpIcon className="w-4 h-4 text-neon-cyan" /> Income History
+                    </h2>
+                    <span className="text-[11px] text-text-muted">{filteredEarnings.length} records</span>
+                </div>
+
+                {/* Filter tabs */}
+                <div className="flex gap-1.5 mb-4 p-1 rounded-xl" style={{ background: 'rgba(255,255,255,0.03)' }}>
+                    {[
+                        { key: 'all', label: 'All' },
+                        { key: 'referral_bonus', label: 'Referral' },
+                        { key: 'liquidity_bonus', label: 'Liquidity' },
+                    ].map((f) => (
+                        <button
+                            key={f.key}
+                            onClick={() => setIncomeFilter(f.key)}
+                            className={clsx(
+                                'flex-1 py-2 text-[11px] font-semibold rounded-lg transition-all capitalize',
+                                incomeFilter === f.key ? 'bg-neon-cyan/12 text-neon-cyan' : 'text-text-muted hover:text-text-secondary'
+                            )}
+                        >
+                            {f.label}
+                        </button>
+                    ))}
+                </div>
+
+                {filteredEarnings.length > 0 ? (
+                    <div className="space-y-2">
+                        {filteredEarnings.map((e: any, i: number) => {
+                            const isReferral = e.type === 'referral_bonus';
+                            const color = isReferral ? 'warning' : 'neon-cyan';
+                            const label = isReferral ? 'Referral Income' : `Liquidity Bonus • Month ${e.month_number || '-'}`;
+
+                            return (
+                                <div key={e.id || i} className="inner-card">
+                                    <div className="flex items-center justify-between mb-1.5">
+                                        <div className="flex items-center gap-2.5">
+                                            <div className={`w-8 h-8 rounded-xl bg-${color}/10 flex items-center justify-center`}>
+                                                <span className={`text-xs font-bold text-${color}`}>
+                                                    {e.from_user_name?.charAt(0) || '?'}
+                                                </span>
+                                            </div>
+                                            <div>
+                                                <p className="text-sm font-semibold">{label}</p>
+                                                <p className="text-[10px] text-text-muted">
+                                                    {e.from_user_name ? `From: ${e.from_user_name}` : 'System'}
+                                                </p>
+                                            </div>
+                                        </div>
+                                        <div className="text-right">
+                                            <p className={`text-sm font-bold text-${color}`}>+₹{parseFloat(e.amount).toFixed(2)}</p>
+                                        </div>
+                                    </div>
+                                    <div className="flex items-center justify-between pt-1.5 border-t border-glass-border">
+                                        <p className="text-[10px] text-text-muted">
+                                            {dayjs(e.created_at).format('MMM D, YYYY • HH:mm:ss')}
+                                        </p>
+                                        <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-${color}/10 text-${color}`}>
+                                            {isReferral ? 'REFERRAL' : 'LIQUIDITY'}
+                                        </span>
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                ) : (
+                    <div className="text-center py-8">
+                        <BanknotesIcon className="w-10 h-10 text-text-muted mx-auto mb-3 opacity-40" />
+                        <p className="text-sm text-text-muted">No income records yet</p>
+                        <p className="text-xs text-text-muted mt-1">Earnings will appear here when your referrals invest</p>
+                    </div>
+                )}
+            </motion.div>
+
+            {/* Direct Team Members */}
+            <motion.div variants={item} className="glass-card">
+                <div className="flex items-center justify-between mb-4">
+                    <h2 className="font-bold text-sm flex items-center gap-2">
+                        <UserGroupIcon className="w-4 h-4 text-neon-purple" /> Direct Team
+                    </h2>
+                    <span className="text-[11px] text-text-muted">{teamMembers.length} members</span>
+                </div>
+                {teamMembers.length > 0 ? (
+                    <div className="space-y-2">
+                        {teamMembers.map((member: any, i: number) => (
+                            <div key={member.id || i} className="inner-card">
+                                <div className="flex items-center justify-between mb-1.5">
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-9 h-9 rounded-xl bg-neon-purple/10 flex items-center justify-center">
+                                            <span className="text-sm font-bold text-neon-purple">
+                                                {member.name?.charAt(0)?.toUpperCase() || '?'}
+                                            </span>
+                                        </div>
+                                        <div>
+                                            <p className="text-sm font-semibold">{member.name || 'User'}</p>
+                                            <p className="text-[10px] text-text-muted">{member.email}</p>
+                                        </div>
+                                    </div>
+                                    <div className="text-right">
+                                        {member.hasInvested ? (
+                                            <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-neon-green/15 text-neon-green">
+                                                <CheckBadgeIcon className="w-3 h-3" /> Active
+                                            </span>
+                                        ) : (
+                                            <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-neon-red/15 text-neon-red">
+                                                <XCircleIcon className="w-3 h-3" /> No Package
+                                            </span>
+                                        )}
+                                    </div>
+                                </div>
+                                <div className="flex items-center justify-between pt-1.5 border-t border-glass-border">
+                                    <p className="text-[10px] text-text-muted">
+                                        Joined: {dayjs(member.joinedAt).format('MMM D, YYYY')}
+                                    </p>
+                                    <p className="text-[10px] text-text-muted">
+                                        Invested: <span className="text-neon-cyan font-semibold">₹{(member.totalInvested || 0).toFixed(0)}</span>
+                                    </p>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                ) : (
+                    <div className="text-center py-8">
+                        <UserGroupIcon className="w-10 h-10 text-text-muted mx-auto mb-3 opacity-40" />
+                        <p className="text-sm text-text-muted">No team members yet</p>
+                        <p className="text-xs text-text-muted mt-1">Share your referral link to build your team</p>
+                    </div>
+                )}
+            </motion.div>
+        </motion.div>
+    );
+}

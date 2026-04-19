@@ -2,13 +2,13 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { HomeIcon, ChartBarSquareIcon, BanknotesIcon, WalletIcon, UserCircleIcon } from '@heroicons/react/24/outline';
-import { HomeIcon as HomeIconSolid, ChartBarSquareIcon as ChartBarSquareIconSolid, BanknotesIcon as BanknotesIconSolid, WalletIcon as WalletIconSolid, UserCircleIcon as UserCircleIconSolid } from '@heroicons/react/24/solid';
+import { HomeIcon, ChartBarSquareIcon, GiftIcon, BanknotesIcon, WalletIcon, UserCircleIcon } from '@heroicons/react/24/outline';
+import { HomeIcon as HomeIconSolid, ChartBarSquareIcon as ChartBarSquareIconSolid, GiftIcon as GiftIconSolid, BanknotesIcon as BanknotesIconSolid, WalletIcon as WalletIconSolid, UserCircleIcon as UserCircleIconSolid } from '@heroicons/react/24/solid';
 
 const navItems = [
     { label: 'Home', href: '/fd/home', Icon: HomeIcon, ActiveIcon: HomeIconSolid },
     { label: 'Dashboard', href: '/fd/dashboard', Icon: ChartBarSquareIcon, ActiveIcon: ChartBarSquareIconSolid },
-    { label: 'Invest', href: '/fd/invest', Icon: BanknotesIcon, ActiveIcon: BanknotesIconSolid },
+    { label: 'Promotion', href: '/fd/promotion', Icon: GiftIcon, ActiveIcon: GiftIconSolid },
     { label: 'Assets', href: '/fd/assets', Icon: WalletIcon, ActiveIcon: WalletIconSolid },
     { label: 'Profile', href: '/fd/profile', Icon: UserCircleIcon, ActiveIcon: UserCircleIconSolid },
 ];
